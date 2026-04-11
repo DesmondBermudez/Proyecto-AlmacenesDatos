@@ -1,15 +1,8 @@
-# Manipulación y Análisis de Datos
-pandas
-numpy
+# Manipulacion y analisis de datos
+pandas>=2.0,<3.0
 
 # Conectividad con SQL Server
-pyodbc
+pyodbc>=5.0,<6.0
 
-# Consultas HTTP (API de Hacienda)
-requests
-
-# Manejo Avanzado de Fechas
-python-dateutil
-
-# Procesamiento de archivos Excel (necesario para el archivo del INEC si es .xlsx)
-openpyxl
+# Consultas HTTP
+requests>=2.31,<3.0

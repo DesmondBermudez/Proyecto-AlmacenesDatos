@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+FUENTE_NASA = 4
+
+
 @dataclass(slots=True)
 class ZonaClimatica:
     nombre: str
@@ -27,5 +30,5 @@ class RegistroClimaMensual:
 @dataclass(slots=True)
 class ConfiguracionExtraccionClima:
     start_year: str = "2019"
-    end_year: str = "2024"
+    end_year: str = "2025"
     base_url: str = "https://power.larc.nasa.gov/api/temporal/monthly/point"

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from etl_clima.models import ConfiguracionExtraccionClima, RegistroClimaMensual, ZonaClimatica
+from etl_clima.models import (
+    FUENTE_NASA,
+    ConfiguracionExtraccionClima,
+    RegistroClimaMensual,
+    ZonaClimatica,
+)
 
 
 def test_modelos_clima_tienen_campos_esperados() -> None:
@@ -21,3 +26,4 @@ def test_modelos_clima_tienen_campos_esperados() -> None:
 
     assert registro.zona == "Matina"
     assert configuracion.base_url.endswith("/point")
+    assert FUENTE_NASA == 4

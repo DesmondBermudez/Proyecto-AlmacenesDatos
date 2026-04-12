@@ -10,6 +10,7 @@ from typing import Callable, Generic, TypeVar
 import pandas as pd
 import requests
 
+from etl_dolar_canasta.combustibles import es_registro_combustible_utilizable
 from etl_dolar_canasta.models import (
     FUENTE_ARESEP,
     FUENTE_HACIENDA,
@@ -72,7 +73,7 @@ class ExtractorTipoCambio:
     def __init__(self, ruta_respaldo_csv: Path) -> None:
         self.ruta_respaldo_csv = ruta_respaldo_csv
 
-    def obtener_diario(self, guardar_csv: bool = True) -> RegistroTipoCambio:
+    def obtener_diario(self, guardar_csv: bool = True, sobrescribir_csv: bool = False) -> RegistroTipoCambio:
         resultado = _resolver_con_fallback(
             "tipo de cambio diario",
             api_fetcher=self._obtener_diario_api,
@@ -82,10 +83,14 @@ class ExtractorTipoCambio:
         )
         registro = self._clonar_registro(resultado.datos, resultado.fuente_id)
         if guardar_csv:
-            self._guardar_registros_csv([registro])
+            self._guardar_registros_csv([registro], sobrescribir=sobrescribir_csv)
         return registro
 
-    def obtener_historico(self, guardar_csv: bool = True) -> list[RegistroTipoCambio]:
+    def obtener_historico(
+        self,
+        guardar_csv: bool = True,
+        sobrescribir_csv: bool = False,
+    ) -> list[RegistroTipoCambio]:
         fecha_fin = datetime.now()
         fecha_actual = datetime(2000, 1, 1)
         registros: list[RegistroTipoCambio] = []
@@ -96,7 +101,7 @@ class ExtractorTipoCambio:
             registros.extend(self._resolver_bloque(fecha_actual, fin_bloque, respaldo))
             fecha_actual = fin_bloque + timedelta(days=1)
         if guardar_csv:
-            self._guardar_registros_csv(registros)
+            self._guardar_registros_csv(registros, sobrescribir=sobrescribir_csv)
         return registros
 
     def _resolver_bloque(
@@ -181,7 +186,11 @@ class ExtractorTipoCambio:
             self.ruta_respaldo_csv, index=False, encoding="utf-8-sig"
         )
 
-    def _guardar_registros_csv(self, registros: list[RegistroTipoCambio]) -> None:
+    def _guardar_registros_csv(
+        self,
+        registros: list[RegistroTipoCambio],
+        sobrescribir: bool = False,
+    ) -> None:
         if not registros:
             if not self.ruta_respaldo_csv.exists():
                 self._crear_csv_vacio()
@@ -197,7 +206,7 @@ class ExtractorTipoCambio:
                 for registro in registros
             ]
         )
-        if self.ruta_respaldo_csv.exists():
+        if self.ruta_respaldo_csv.exists() and not sobrescribir:
             existentes = pd.read_csv(self.ruta_respaldo_csv)
             existentes["fecha"] = pd.to_datetime(
                 existentes["fecha"], format="mixed", errors="coerce"
@@ -265,7 +274,7 @@ class ExtractorCombustible:
     def __init__(self, ruta_respaldo_csv: Path) -> None:
         self.ruta_respaldo_csv = ruta_respaldo_csv
 
-    def obtener(self, guardar_csv: bool = True) -> list[dict]:
+    def obtener(self, guardar_csv: bool = True, sobrescribir_csv: bool = False) -> list[dict]:
         resultado = _resolver_con_fallback(
             "historico de combustibles",
             api_fetcher=self._obtener_api,
@@ -275,7 +284,7 @@ class ExtractorCombustible:
         )
         registros = self._aplicar_fuente(resultado.datos, resultado.fuente_id)
         if guardar_csv:
-            self._guardar_csv(registros)
+            self._guardar_csv(registros, sobrescribir=sobrescribir_csv)
         return registros
 
     def _obtener_api(self) -> list[dict]:
@@ -297,7 +306,8 @@ class ExtractorCombustible:
             self._crear_csv_vacio()
             return []
         df = pd.read_csv(self.ruta_respaldo_csv)
-        return df.to_dict(orient="records")
+        registros = df.to_dict(orient="records")
+        return [registro for registro in registros if es_registro_combustible_utilizable(registro)]
 
     def _crear_csv_vacio(self) -> None:
         self.ruta_respaldo_csv.parent.mkdir(parents=True, exist_ok=True)
@@ -305,9 +315,12 @@ class ExtractorCombustible:
             self.ruta_respaldo_csv, index=False, encoding="utf-8-sig"
         )
 
-    def _guardar_csv(self, registros: list[dict]) -> None:
+    def _guardar_csv(self, registros: list[dict], sobrescribir: bool = False) -> None:
         self.ruta_respaldo_csv.parent.mkdir(parents=True, exist_ok=True)
-        if not registros:
+        registros_validos = [
+            registro for registro in registros if es_registro_combustible_utilizable(registro)
+        ]
+        if not registros_validos:
             if not self.ruta_respaldo_csv.exists():
                 self._crear_csv_vacio()
             return
@@ -318,10 +331,10 @@ class ExtractorCombustible:
                     "precioFinal": reg.get("precioFinal"),
                     "fechaPublicacion": reg.get("fechaPublicacion"),
                 }
-                for reg in registros
+                for reg in registros_validos
             ]
         )
-        if self.ruta_respaldo_csv.exists():
+        if self.ruta_respaldo_csv.exists() and not sobrescribir:
             existentes = pd.read_csv(self.ruta_respaldo_csv)
             combinados = pd.concat([existentes, nuevos], ignore_index=True)
         else:

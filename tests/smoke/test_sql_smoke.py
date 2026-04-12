@@ -9,8 +9,9 @@ import pytest
 
 from admin_db_conn.config import ParametrosETL
 from admin_db_conn.db import SqlServerDB
+from etl_clima.load import CargadorClima
 from etl_dolar_canasta.load import CargadorDW
-from etl_dolar_canasta.models import RegistroTipoCambio
+from etl_dolar_canasta.models import RegistroPrecioCombustible, RegistroProductoCombustible, RegistroTipoCambio
 
 
 pytestmark = pytest.mark.smoke_sql
@@ -60,12 +61,17 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
     master_db = SqlServerDB(_build_params("master"))
     smoke_db = SqlServerDB(_build_params(database_name))
 
-    with master_db.connection() as conn:
+    conn = master_db.conectar()
+    conn.autocommit = True
+    try:
         cursor = conn.cursor()
-        script = script_path.read_text(encoding="utf-8").replace("DW_Dolar_Canasta", database_name)
+        script = script_path.read_text(encoding="utf-8-sig").replace(
+            "DW_Dolar_Canasta", database_name
+        )
         for lote in _split_sql_batches(script):
             cursor.execute(lote)
-        conn.commit()
+    finally:
+        conn.close()
 
     try:
         cargador = CargadorDW(smoke_db)
@@ -78,6 +84,21 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
                     venta=505.0,
                 )
             ]
+        )
+        cargador.cargar_combustibles(
+            [
+                RegistroProductoCombustible(
+                    nombre_raw="Gasolina RON 95",
+                    nombre_normalizado="Gasolina RON 95",
+                )
+            ],
+            [
+                RegistroPrecioCombustible(
+                    fecha_raw="2026-04-11T00:00:00",
+                    nombre_producto_raw="Gasolina RON 95",
+                    precio=780.0,
+                )
+            ],
         )
         cargador.cargar_canasta(
             pd.DataFrame(
@@ -98,6 +119,24 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
                 ]
             )
         )
+        CargadorClima(db=smoke_db).cargar_staging(
+            pd.DataFrame(
+                [
+                    {
+                        "zona": "MATINA",
+                        "latitud": 10.0,
+                        "longitud": -83.35,
+                        "anio": 2026,
+                        "mes": 4,
+                        "temp_max": 30.5,
+                        "temp_min": 22.1,
+                        "precipitacion": 5.0,
+                        "humedad": 84.0,
+                        "radiacion_solar": 4.8,
+                    }
+                ]
+            )
+        )
         cargador.ejecutar_transformaciones_dw()
 
         with smoke_db.connection() as conn:
@@ -107,15 +146,33 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
                 "DimFecha",
                 "DimProducto",
                 "DimRegion",
+                "DimZonaClimatica",
                 "FactTipoCambio",
+                "FactPrecioCombustible",
                 "FactPreciosCanasta",
+                "FactClimaMensual",
             ):
                 cursor.execute(f"SELECT COUNT(*) FROM dbo.{tabla}")
                 counts[tabla] = cursor.fetchone()[0]
 
+            cursor.execute("SELECT COUNT(*) FROM dbo.StagingClimaMensual WHERE Precipitacion IS NOT NULL")
+            staging_precipitacion = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM dbo.FactClimaMensual WHERE Precipitacion IS NOT NULL")
+            dw_precipitacion = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM dbo.StagingTipoCambio WHERE TipoCambioCompra IS NOT NULL AND TipoCambioVenta IS NOT NULL")
+            staging_tipo_cambio = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM dbo.FactTipoCambio WHERE TipoCambioCompra IS NOT NULL AND TipoCambioVenta IS NOT NULL")
+            dw_tipo_cambio = cursor.fetchone()[0]
+
         assert all(valor > 0 for valor in counts.values())
+        assert staging_precipitacion > 0
+        assert dw_precipitacion == staging_precipitacion
+        assert staging_tipo_cambio > 0
+        assert dw_tipo_cambio == staging_tipo_cambio
     finally:
-        with master_db.connection() as conn:
+        conn = master_db.conectar()
+        conn.autocommit = True
+        try:
             cursor = conn.cursor()
             cursor.execute(
                 f"""
@@ -126,4 +183,5 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
                 END
                 """
             )
-            conn.commit()
+        finally:
+            conn.close()

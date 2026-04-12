@@ -43,6 +43,12 @@ class TransformadorClima:
         df["mes"] = pd.to_numeric(df["mes"], errors="coerce").astype("Int64")
         for columna in ("latitud", "longitud", "temp_max", "temp_min", "precipitacion", "humedad", "radiacion_solar"):
             df[columna] = pd.to_numeric(df[columna], errors="coerce")
+        df["latitud"] = df["latitud"].round(6)
+        df["longitud"] = df["longitud"].round(6)
 
         df = df.dropna(subset=["zona", "anio", "mes"])
+        df = df.dropna(
+            subset=["latitud", "longitud", "temp_max", "temp_min", "precipitacion", "humedad", "radiacion_solar"],
+            how="any",
+        )
         return df[self.COLUMNAS_SALIDA].reset_index(drop=True)

@@ -3,4 +3,5 @@
 **/.env
 .pytest_cache/
 **/.test_tmp/
+tests/.tmp/
 **/pytest-cache-files-*/

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from etl_dolar_canasta.combustibles import clasificar_producto_combustible
 from etl_dolar_canasta.models import (
     FUENTE_ARESEP,
     RegistroPrecioCombustible,
@@ -18,47 +19,44 @@ class TransformadorCombustible:
         productos: list[RegistroProductoCombustible] = []
         precios: list[RegistroPrecioCombustible] = []
         vistos: set[str] = set()
+
         for reg in registros:
             nombre_raw = (reg.get("producto") or "").strip()
             if not nombre_raw:
                 continue
-            fuente_id = int(reg.get("fuente_id") or FUENTE_ARESEP)
-            nombre_upper = nombre_raw.upper()
-            nombre_sanitizado = (
-                nombre_upper.replace("Á", "A")
-                .replace("É", "E")
-                .replace("Í", "I")
-                .replace("Ó", "O")
-                .replace("Ú", "U")
-                .replace("Ã‰", "E")
-            )
-            nombre_normalizado = None
-            if "RON 95" in nombre_sanitizado:
-                nombre_normalizado = "Gasolina RON 95"
-            elif "RON 91" in nombre_sanitizado:
-                nombre_normalizado = "Gasolina RON 91"
-            elif "DIESEL" in nombre_sanitizado:
-                nombre_normalizado = "Diesel"
-            if not nombre_normalizado:
+
+            clasificacion = clasificar_producto_combustible(nombre_raw)
+            if clasificacion is None:
                 continue
-            if nombre_raw not in vistos:
+
+            fuente_id = int(reg.get("fuente_id") or FUENTE_ARESEP)
+            nombre_canonico = clasificacion["nombre_canonico"]
+
+            if reg.get("precioFinal") is None or not str(reg.get("fechaPublicacion") or "").strip():
+                continue
+
+            if nombre_canonico not in vistos:
                 productos.append(
                     RegistroProductoCombustible(
-                        nombre_raw=nombre_raw,
-                        nombre_normalizado=nombre_normalizado,
+                        nombre_raw=nombre_canonico,
+                        nombre_normalizado=nombre_canonico,
+                        categoria=clasificacion["categoria"],
+                        subcategoria=clasificacion["subcategoria"],
+                        unidad_medida=clasificacion["unidad_medida"],
                         fuente_id=fuente_id,
                     )
                 )
-                vistos.add(nombre_raw)
-            if reg.get("precioFinal") is not None:
-                precios.append(
-                    RegistroPrecioCombustible(
-                        fecha_raw=str(reg.get("fechaPublicacion") or ""),
-                        nombre_producto_raw=nombre_raw,
-                        precio=float(reg["precioFinal"]),
-                        fuente_id=fuente_id,
-                    )
+                vistos.add(nombre_canonico)
+
+            precios.append(
+                RegistroPrecioCombustible(
+                    fecha_raw=str(reg.get("fechaPublicacion") or ""),
+                    nombre_producto_raw=nombre_canonico,
+                    precio=float(reg["precioFinal"]),
+                    fuente_id=fuente_id,
                 )
+            )
+
         return productos, precios
 
 

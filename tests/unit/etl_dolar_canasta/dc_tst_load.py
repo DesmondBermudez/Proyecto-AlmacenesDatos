@@ -49,6 +49,25 @@ class FakeDB:
         yield self.connection_instance
 
 
+def test_limpiar_staging_borra_tablas_transitorias_en_orden_seguro() -> None:
+    fake_db = FakeDB()
+    cargador = CargadorDW(fake_db)
+
+    cargador.limpiar_staging()
+
+    execs = [sql.strip() for sql, _ in fake_db.connection_instance.cursor_instance.execute_calls]
+
+    assert execs == [
+        "DELETE FROM dbo.StagingClimaMensual",
+        "DELETE FROM dbo.StagingZonaClimatica",
+        "DELETE FROM dbo.StagingHistoricoCanasta",
+        "DELETE FROM dbo.StagingPrecioGasolina",
+        "DELETE FROM dbo.StagingProducto",
+        "DELETE FROM dbo.StagingTipoCambio",
+        "DELETE FROM dbo.StagingFecha",
+    ]
+
+
 def test_cargar_canasta_inserta_staging_fecha_con_parametros_alineados() -> None:
     fake_db = FakeDB()
     cargador = CargadorDW(fake_db)
@@ -113,9 +132,16 @@ def test_cargar_combustibles_limpia_staging_y_respeta_fuente_id() -> None:
         for sql, params in fake_db.connection_instance.cursor_instance.execute_calls
         if "INSERT INTO dbo.StagingPrecioGasolina" in sql
     ]
+    fecha_calls = [
+        params
+        for sql, params in fake_db.connection_instance.cursor_instance.execute_calls
+        if "INSERT INTO dbo.StagingFecha" in sql
+    ]
 
     assert any("DELETE FROM dbo.StagingPrecioGasolina" in sql for sql in sql_texts)
     assert any("DELETE FROM dbo.StagingProducto" in sql for sql in sql_texts)
+    assert len(fecha_calls) == 1
+    assert fecha_calls[0][2] == "2026-04-11"
     assert insert_params[0][-1] == FUENTE_RESPALDO
 
 
@@ -131,6 +157,9 @@ def test_ejecutar_transformaciones_dw_respeta_orden_actual() -> None:
         "EXEC dbo.sp_Transform_DimFecha",
         "EXEC dbo.sp_Transform_DimProducto",
         "EXEC dbo.sp_Transform_DimRegion",
+        "EXEC dbo.sp_Transform_DimZonaClimatica",
         "EXEC dbo.sp_Transform_FactTipoCambio",
+        "EXEC dbo.sp_Load_FactPrecioCombustible",
         "EXEC dbo.sp_Load_FactPreciosCanasta",
+        "EXEC dbo.sp_Load_FactClimaMensual",
     ]

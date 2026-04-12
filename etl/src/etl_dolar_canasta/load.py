@@ -15,6 +15,21 @@ class CargadorDW:
     def __init__(self, db: SqlServerDB) -> None:
         self.db = db
 
+    def limpiar_staging(self) -> None:
+        with self.db.connection() as conn:
+            cursor = conn.cursor()
+            for tabla in (
+                "dbo.StagingClimaMensual",
+                "dbo.StagingZonaClimatica",
+                "dbo.StagingHistoricoCanasta",
+                "dbo.StagingPrecioGasolina",
+                "dbo.StagingProducto",
+                "dbo.StagingTipoCambio",
+                "dbo.StagingFecha",
+            ):
+                cursor.execute(f"DELETE FROM {tabla}")
+            conn.commit()
+
     def asegurar_catalogos_base(self) -> None:
         with self.db.connection() as conn:
             cursor = conn.cursor()
@@ -58,6 +73,25 @@ class CargadorDW:
                 SET NombreFuente = 'Respaldo local o simulado',
                     Descripcion = 'RESPALDO'
                 WHERE FuenteID = 3
+                """
+            )
+            cursor.execute(
+                """
+                IF NOT EXISTS (SELECT 1 FROM dbo.DimFuenteDatos WHERE FuenteID = 4)
+                BEGIN
+                    SET IDENTITY_INSERT dbo.DimFuenteDatos ON;
+                    INSERT INTO dbo.DimFuenteDatos (FuenteID, NombreFuente, Descripcion)
+                    VALUES (4, 'NASA POWER', 'NASA_POWER');
+                    SET IDENTITY_INSERT dbo.DimFuenteDatos OFF;
+                END
+                """
+            )
+            cursor.execute(
+                """
+                UPDATE dbo.DimFuenteDatos
+                SET NombreFuente = 'NASA POWER',
+                    Descripcion = 'NASA_POWER'
+                WHERE FuenteID = 4
                 """
             )
 
@@ -115,6 +149,31 @@ class CargadorDW:
         productos: list[RegistroProductoCombustible],
         precios: list[RegistroPrecioCombustible],
     ) -> None:
+        productos_unicos = list(
+            {
+                (
+                    producto.nombre_raw,
+                    producto.nombre_normalizado,
+                    producto.categoria,
+                    producto.subcategoria,
+                    producto.unidad_medida,
+                    producto.fuente_id,
+                ): producto
+                for producto in productos
+            }.values()
+        )
+        precios_unicos = list(
+            {
+                (
+                    precio.fecha_raw,
+                    precio.nombre_producto_raw,
+                    precio.precio,
+                    precio.fuente_id,
+                ): precio
+                for precio in precios
+            }.values()
+        )
+
         with self.db.connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -124,7 +183,7 @@ class CargadorDW:
                 """
             )
             cursor.execute("DELETE FROM dbo.StagingPrecioGasolina")
-            for producto in productos:
+            for producto in productos_unicos:
                 cursor.execute(
                     """
                     INSERT INTO dbo.StagingProducto (
@@ -143,7 +202,34 @@ class CargadorDW:
                         1.0,
                     ),
                 )
-            for precio in precios:
+            for precio in precios_unicos:
+                fecha_precio = pd.to_datetime(str(precio.fecha_raw)[:10], errors="coerce")
+                if pd.notna(fecha_precio):
+                    fecha_python = fecha_precio.to_pydatetime()
+                    fecha_id = int(fecha_precio.strftime("%Y%m%d"))
+                    cursor.execute(
+                        """
+                        IF NOT EXISTS (
+                            SELECT 1 FROM dbo.StagingFecha WHERE FechaID = ?
+                        )
+                        BEGIN
+                            INSERT INTO dbo.StagingFecha (
+                                FechaID, Fecha, Dia, Mes, NombreMes, Año, Trimestre
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        END
+                        """,
+                        (
+                            fecha_id,
+                            fecha_id,
+                            fecha_precio.strftime("%Y-%m-%d"),
+                            fecha_python.day,
+                            fecha_python.month,
+                            fecha_precio.strftime("%B"),
+                            fecha_python.year,
+                            ((fecha_python.month - 1) // 3) + 1,
+                        ),
+                    )
                 cursor.execute(
                     """
                     INSERT INTO dbo.StagingPrecioGasolina (
@@ -239,6 +325,16 @@ class CargadorDW:
 
             conn.commit()
             cursor.fast_executemany = True
+            dataframe = dataframe.drop_duplicates(
+                subset=[
+                    "Fecha",
+                    "NombreProducto",
+                    "Provincia",
+                    "Canton",
+                    "Distrito",
+                    "PrecioColones",
+                ]
+            )
             lote = [
                 (
                     fila["Fecha"],
@@ -267,6 +363,9 @@ class CargadorDW:
             cursor.execute("EXEC dbo.sp_Transform_DimFecha")
             cursor.execute("EXEC dbo.sp_Transform_DimProducto")
             cursor.execute("EXEC dbo.sp_Transform_DimRegion")
+            cursor.execute("EXEC dbo.sp_Transform_DimZonaClimatica")
             cursor.execute("EXEC dbo.sp_Transform_FactTipoCambio")
+            cursor.execute("EXEC dbo.sp_Load_FactPrecioCombustible")
             cursor.execute("EXEC dbo.sp_Load_FactPreciosCanasta")
+            cursor.execute("EXEC dbo.sp_Load_FactClimaMensual")
             conn.commit()

@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from etl_dolar_canasta.models import (
+    FUENTE_ARESEP,
     RegistroPrecioCombustible,
     RegistroProductoCombustible,
 )
@@ -21,13 +22,22 @@ class TransformadorCombustible:
             nombre_raw = (reg.get("producto") or "").strip()
             if not nombre_raw:
                 continue
+            fuente_id = int(reg.get("fuente_id") or FUENTE_ARESEP)
             nombre_upper = nombre_raw.upper()
+            nombre_sanitizado = (
+                nombre_upper.replace("Á", "A")
+                .replace("É", "E")
+                .replace("Í", "I")
+                .replace("Ó", "O")
+                .replace("Ú", "U")
+                .replace("Ã‰", "E")
+            )
             nombre_normalizado = None
-            if "RON 95" in nombre_upper:
+            if "RON 95" in nombre_sanitizado:
                 nombre_normalizado = "Gasolina RON 95"
-            elif "RON 91" in nombre_upper:
+            elif "RON 91" in nombre_sanitizado:
                 nombre_normalizado = "Gasolina RON 91"
-            elif "DIESEL" in nombre_upper or "DIÉSEL" in nombre_upper:
+            elif "DIESEL" in nombre_sanitizado:
                 nombre_normalizado = "Diesel"
             if not nombre_normalizado:
                 continue
@@ -36,6 +46,7 @@ class TransformadorCombustible:
                     RegistroProductoCombustible(
                         nombre_raw=nombre_raw,
                         nombre_normalizado=nombre_normalizado,
+                        fuente_id=fuente_id,
                     )
                 )
                 vistos.add(nombre_raw)
@@ -45,6 +56,7 @@ class TransformadorCombustible:
                         fecha_raw=str(reg.get("fechaPublicacion") or ""),
                         nombre_producto_raw=nombre_raw,
                         precio=float(reg["precioFinal"]),
+                        fuente_id=fuente_id,
                     )
                 )
         return productos, precios

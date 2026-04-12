@@ -4,6 +4,7 @@ import pandas as pd
 
 from etl_dolar_canasta.db import SqlServerDB
 from etl_dolar_canasta.models import (
+    FUENTE_RESPALDO,
     RegistroPrecioCombustible,
     RegistroProductoCombustible,
     RegistroTipoCambio,
@@ -46,9 +47,17 @@ class CargadorDW:
                 BEGIN
                     SET IDENTITY_INSERT dbo.DimFuenteDatos ON;
                     INSERT INTO dbo.DimFuenteDatos (FuenteID, NombreFuente, Descripcion)
-                    VALUES (3, 'Archivos planos', 'ARCHP');
+                    VALUES (3, 'Respaldo local o simulado', 'RESPALDO');
                     SET IDENTITY_INSERT dbo.DimFuenteDatos OFF;
                 END
+                """
+            )
+            cursor.execute(
+                """
+                UPDATE dbo.DimFuenteDatos
+                SET NombreFuente = 'Respaldo local o simulado',
+                    Descripcion = 'RESPALDO'
+                WHERE FuenteID = 3
                 """
             )
 
@@ -108,8 +117,13 @@ class CargadorDW:
     ) -> None:
         with self.db.connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM dbo.StagingProducto WHERE FuenteID = 2")
-            cursor.execute("DELETE FROM dbo.StagingPrecioGasolina WHERE FuenteID = 3")
+            cursor.execute(
+                """
+                DELETE FROM dbo.StagingProducto
+                WHERE Categoria = 'Combustibles' AND SubCategoria = 'Hidrocarburos'
+                """
+            )
+            cursor.execute("DELETE FROM dbo.StagingPrecioGasolina")
             for producto in productos:
                 cursor.execute(
                     """
@@ -148,8 +162,10 @@ class CargadorDW:
     def cargar_canasta(self, dataframe: pd.DataFrame) -> None:
         with self.db.connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM dbo.StagingProducto WHERE FuenteID = 3")
-            cursor.execute("DELETE FROM dbo.StagingHistoricoCanasta WHERE FuenteID = 3")
+            cursor.execute(f"DELETE FROM dbo.StagingProducto WHERE FuenteID = {FUENTE_RESPALDO}")
+            cursor.execute(
+                f"DELETE FROM dbo.StagingHistoricoCanasta WHERE FuenteID = {FUENTE_RESPALDO}"
+            )
             conn.commit()
 
             productos_unicos = (
@@ -168,24 +184,26 @@ class CargadorDW:
                 cursor.execute(
                     """
                     IF NOT EXISTS (
-                        SELECT 1 FROM dbo.StagingProducto WHERE NombreRaw = ? AND FuenteID = 3
+                        SELECT 1 FROM dbo.StagingProducto WHERE NombreRaw = ? AND FuenteID = ?
                     )
                     BEGIN
                         INSERT INTO dbo.StagingProducto (
                             NombreRaw, NombreNormalizado, Categoria, SubCategoria, UnidadMedida,
                             EsImportado, FuenteID, PrecioBaseReferencia, FactorCanasta
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, 3, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     END
                     """,
                     (
                         row["NombreProducto"],
+                        FUENTE_RESPALDO,
                         row["NombreProducto"],
                         row["NombreProducto"],
                         row["Categoria"],
                         row["Categoria"],
                         row["UnidadMedida"],
                         int(row["EsImportado"]),
+                        FUENTE_RESPALDO,
                         float(row["PrecioBaseReferencia"]),
                         float(row["FactorCanasta"]),
                     ),
@@ -229,7 +247,7 @@ class CargadorDW:
                     fila["Canton"],
                     fila["Distrito"],
                     float(fila["PrecioColones"]),
-                    3,
+                    FUENTE_RESPALDO,
                 )
                 for _, fila in dataframe.iterrows()
             ]

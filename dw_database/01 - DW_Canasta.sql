@@ -273,40 +273,58 @@ BEGIN
 
     DECLARE @PrecioBaseGlobal DECIMAL(18,2) = 800.00;
 
-    INSERT INTO dbo.FactPreciosCanasta (
-        FechaID,
-        ProductoID,
-        RegionID,
-        Precio,
-        MonedaID,
-        FuenteID,
-        CostoCanastaTotal,
-        IPC
-    )
-    SELECT
-        f.FechaID,
-        p.ProductoID,
-        r.RegionID,
-        s.PrecioColones,
-        2 AS MonedaID,
-        s.FuenteID,
-        s.PrecioColones * ISNULL(p.FactorCanasta, 1.0) AS CostoCanastaTotal,
-        ROUND((s.PrecioColones / @PrecioBaseGlobal) * 100, 2) AS IPC
-    FROM dbo.StagingHistoricoCanasta s
-    INNER JOIN dbo.DimFecha f
-        ON s.Fecha = f.Fecha
-    INNER JOIN dbo.DimProducto p
-        ON s.NombreProductoRaw = p.NombreProducto
-    INNER JOIN dbo.DimRegion r
-        ON s.Provincia = r.Provincia
-       AND s.Canton = r.Canton
-    WHERE NOT EXISTS (
-        SELECT 1
-        FROM dbo.FactPreciosCanasta fpc
-        WHERE fpc.FechaID = f.FechaID
-          AND fpc.ProductoID = p.ProductoID
-          AND fpc.RegionID = r.RegionID
-    );
+    MERGE dbo.FactPreciosCanasta AS Target
+    USING (
+        SELECT DISTINCT
+            f.FechaID,
+            p.ProductoID,
+            r.RegionID,
+            s.PrecioColones AS Precio,
+            2 AS MonedaID,
+            s.FuenteID,
+            s.PrecioColones * ISNULL(p.FactorCanasta, 1.0) AS CostoCanastaTotal,
+            ROUND((s.PrecioColones / @PrecioBaseGlobal) * 100, 2) AS IPC
+        FROM dbo.StagingHistoricoCanasta s
+        INNER JOIN dbo.DimFecha f
+            ON s.Fecha = f.Fecha
+        INNER JOIN dbo.DimProducto p
+            ON TRIM(UPPER(s.NombreProductoRaw)) = p.NombreProducto
+        INNER JOIN dbo.DimRegion r
+            ON TRIM(UPPER(s.Provincia)) = TRIM(UPPER(r.Provincia))
+           AND TRIM(UPPER(s.Canton)) = TRIM(UPPER(r.Canton))
+           AND TRIM(UPPER(s.Distrito)) = TRIM(UPPER(r.Zona))
+    ) AS Source
+        ON Target.FechaID = Source.FechaID
+       AND Target.ProductoID = Source.ProductoID
+       AND Target.RegionID = Source.RegionID
+    WHEN MATCHED THEN
+        UPDATE SET
+            Target.Precio = Source.Precio,
+            Target.MonedaID = Source.MonedaID,
+            Target.FuenteID = Source.FuenteID,
+            Target.CostoCanastaTotal = Source.CostoCanastaTotal,
+            Target.IPC = Source.IPC
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (
+            FechaID,
+            ProductoID,
+            RegionID,
+            Precio,
+            MonedaID,
+            FuenteID,
+            CostoCanastaTotal,
+            IPC
+        )
+        VALUES (
+            Source.FechaID,
+            Source.ProductoID,
+            Source.RegionID,
+            Source.Precio,
+            Source.MonedaID,
+            Source.FuenteID,
+            Source.CostoCanastaTotal,
+            Source.IPC
+        );
 
     PRINT 'FactPreciosCanasta cargada con metricas calculadas.';
 END
@@ -405,21 +423,31 @@ GO
 CREATE PROCEDURE dbo.sp_Transform_DimRegion
 AS
 BEGIN
-    INSERT INTO dbo.DimRegion (
-        Provincia,
-        Canton,
-        Zona
-    )
-    SELECT DISTINCT
-        s.Provincia,
-        s.Canton,
-        s.Distrito
-    FROM dbo.StagingHistoricoCanasta s
-    LEFT JOIN dbo.DimRegion d
-        ON s.Provincia = d.Provincia
-       AND s.Canton = d.Canton
-    WHERE d.RegionID IS NULL
-      AND s.Provincia IS NOT NULL;
+    MERGE dbo.DimRegion AS Target
+    USING (
+        SELECT DISTINCT
+            TRIM(UPPER(s.Provincia)) AS Provincia,
+            TRIM(UPPER(s.Canton)) AS Canton,
+            TRIM(UPPER(s.Distrito)) AS Zona
+        FROM dbo.StagingHistoricoCanasta s
+        WHERE s.Provincia IS NOT NULL
+          AND s.Canton IS NOT NULL
+          AND s.Distrito IS NOT NULL
+    ) AS Source
+        ON TRIM(UPPER(Target.Provincia)) = Source.Provincia
+       AND TRIM(UPPER(Target.Canton)) = Source.Canton
+       AND TRIM(UPPER(Target.Zona)) = Source.Zona
+    WHEN NOT MATCHED BY TARGET THEN
+        INSERT (
+            Provincia,
+            Canton,
+            Zona
+        )
+        VALUES (
+            Source.Provincia,
+            Source.Canton,
+            Source.Zona
+        );
 END
 GO
 

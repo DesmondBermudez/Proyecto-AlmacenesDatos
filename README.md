@@ -106,7 +106,7 @@ python ETL_dolar_canasta.py --no-generar-historicos
 
 - `--driver`
   Driver ODBC.
-  Default: `ODBC Driver 17 for SQL Server`
+  Default: `"ODBC Driver 17 for SQL Server"`
 
 - `--username`
   Usuario SQL opcional
@@ -199,6 +199,45 @@ etl_dolar_canasta/
         |-- load.py
         |-- models.py
         `-- transform.py
+```
+
+## Pruebas
+
+Se agrego una zona de pruebas para validar la estabilidad base del proyecto sin cambiar el flujo principal del ETL.
+
+### Instalar dependencias de desarrollo
+
+```bash
+python -m pip install -r etl_dolar_canasta/requirements-dev.txt
+```
+
+### Ejecutar pruebas unitarias
+
+```bash
+python -m pytest -q etl_dolar_canasta/tests/unit
+```
+
+Estas pruebas cubren:
+
+- fallback unificado de fuentes
+- transformaciones principales
+- carga de staging para canasta
+- orden de ejecucion de procedimientos almacenados
+
+### Smoke test SQL opcional
+
+Existe una prueba `smoke_sql` para validar carga real sobre SQL Server cuando el entorno esta disponible.
+
+Se ejecuta solo si defines:
+
+- `ETL_SMOKE_SQL=1`
+- `ETL_SQL_SERVER`
+- opcionalmente `ETL_SQL_DRIVER`, `ETL_SQL_USERNAME`, `ETL_SQL_PASSWORD`, `ETL_SQL_TRUSTED_CONNECTION`
+
+Ejemplo:
+
+```bash
+python -m pytest -q etl_dolar_canasta/tests/smoke -m smoke_sql
 ```
 
 ## Procedimientos almacenados del DW

@@ -1,3 +1,6 @@
 **/__pycache__/
 **/.idea
 **/.env
+.pytest_cache/
+**/.test_tmp/
+**/pytest-cache-files-*/

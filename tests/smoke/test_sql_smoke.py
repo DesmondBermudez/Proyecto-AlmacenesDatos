@@ -7,8 +7,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from etl_dolar_canasta.config import ParametrosETL
-from etl_dolar_canasta.db import SqlServerDB
+from admin_db_conn.config import ParametrosETL
+from admin_db_conn.db import SqlServerDB
 from etl_dolar_canasta.load import CargadorDW
 from etl_dolar_canasta.models import RegistroTipoCambio
 
@@ -55,7 +55,7 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
     if os.getenv("ETL_SMOKE_SQL") != "1":
         pytest.skip("Smoke SQL deshabilitado")
 
-    script_path = Path(__file__).resolve().parents[3] / "dw_database" / "01 - DW_Canasta.sql"
+    script_path = Path(__file__).resolve().parents[2] / "dw_database" / "01 - DW_Canasta.sql"
     database_name = f"DW_Dolar_Canasta_Smoke_{uuid.uuid4().hex[:8]}"
     master_db = SqlServerDB(_build_params("master"))
     smoke_db = SqlServerDB(_build_params(database_name))

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from etl_dolar_canasta.config import ParametrosETL
-from etl_dolar_canasta.db import SqlServerDB
+from admin_db_conn.config import ParametrosETL
+from admin_db_conn.db import SqlServerDB
 from etl_dolar_canasta.extract import ExtractorCombustible, ExtractorTipoCambio, GeneradorCanasta
 from etl_dolar_canasta.load import CargadorDW
 from etl_dolar_canasta.transform import TransformadorCanasta, TransformadorCombustible
@@ -13,16 +13,17 @@ class ETLDolarCanastaApp:
     def __init__(self, parametros: ParametrosETL, base_dir: Path) -> None:
         self.parametros = parametros
         self.base_dir = base_dir
+        self.raw_data_dir = base_dir / "etl" / "data" / "raw"
         self.db = SqlServerDB(parametros)
         self.cargador = CargadorDW(self.db)
         self.extractor_tipo_cambio = ExtractorTipoCambio(
-            base_dir / "data" / "raw" / "tipo_cambio_historico.csv"
+            self.raw_data_dir / "tipo_cambio_historico.csv"
         )
         self.extractor_combustible = ExtractorCombustible(
-            base_dir / "data" / "raw" / "combustible_historico.csv"
+            self.raw_data_dir / "combustible_historico.csv"
         )
         self.generador_canasta = GeneradorCanasta(
-            base_dir / "data" / "raw" / "historico_canasta_cr.csv"
+            self.raw_data_dir / "historico_canasta_cr.csv"
         )
         self.transformador_combustible = TransformadorCombustible()
         self.transformador_canasta = TransformadorCanasta()

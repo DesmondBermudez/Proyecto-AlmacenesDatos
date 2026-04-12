@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from etl_dolar_canasta.db import SqlServerDB
+from admin_db_conn.db import SqlServerDB
 from etl_dolar_canasta.models import (
     FUENTE_RESPALDO,
     RegistroPrecioCombustible,

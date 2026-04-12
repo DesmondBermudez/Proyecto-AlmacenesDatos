@@ -9,7 +9,7 @@ import pytest
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-SRC_DIR = ROOT_DIR / "src"
+SRC_DIR = ROOT_DIR / "etl" / "src"
 TMP_DIR = ROOT_DIR / ".test_tmp"
 
 if str(SRC_DIR) not in sys.path:

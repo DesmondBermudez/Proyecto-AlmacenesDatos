@@ -1,4 +1,4 @@
-# ETL Dolar Canasta
+# ETL Dolar Canasta y Clima
 
 Este ETL tiene como funcion extraer, transformar y cargar datos de tipo de cambio, combustibles y canasta basica en la base de datos `DW_Dolar_Canasta`.
 
@@ -42,8 +42,8 @@ El ETL usa como fuente principal la API de Hacienda.
 Comportamiento:
 
 - si la API responde, usa esos datos
-- si la opcion de historicos esta activa, actualiza `data/raw/tipo_cambio_historico.csv`
-- si la API falla, usa `data/raw/tipo_cambio_historico.csv`
+- si la opcion de historicos esta activa, actualiza `etl/data/raw/tipo_cambio_historico.csv`
+- si la API falla, usa `etl/data/raw/tipo_cambio_historico.csv`
 - si el CSV no existe, lo crea automaticamente
 - en modo historico, si no hay datos suficientes, simula los faltantes
 
@@ -54,8 +54,8 @@ El ETL usa como fuente principal la API de ARESEP.
 Comportamiento:
 
 - si la API responde, usa esos datos
-- si la opcion de historicos esta activa, actualiza `data/raw/combustible_historico.csv`
-- si la API falla, usa `data/raw/combustible_historico.csv`
+- si la opcion de historicos esta activa, actualiza `etl/data/raw/combustible_historico.csv`
+- si la API falla, usa `etl/data/raw/combustible_historico.csv`
 - si el CSV no existe, lo crea automaticamente
 
 ### Canasta basica
@@ -65,7 +65,7 @@ La canasta no se obtiene desde una fuente externa en esta version del ETL.
 Comportamiento:
 
 - se genera localmente como historico sintetico
-- se guarda en `data/raw/historico_canasta_cr.csv`
+- se guarda en `etl/data/raw/historico_canasta_cr.csv`
 - se usa inmediatamente para la carga
 - este archivo siempre se genera, incluso si no se actualizan los otros historicos
 
@@ -82,14 +82,14 @@ Recorre el historico del tipo de cambio desde el anio 2000, intentando primero A
 ## Parametros de consola
 
 ```bash
-python ETL_dolar_canasta.py
-python ETL_dolar_canasta.py --modo-carga direct-insert
-python ETL_dolar_canasta.py --modo-carga historico
-python ETL_dolar_canasta.py --trusted-connection
-python ETL_dolar_canasta.py --no-trusted-connection
-python ETL_dolar_canasta.py --server . --database DW_Dolar_Canasta --username sa --password secret
-python ETL_dolar_canasta.py --generar-historicos
-python ETL_dolar_canasta.py --no-generar-historicos
+python ETL.py
+python ETL.py --modo-carga direct-insert
+python ETL.py --modo-carga historico
+python ETL.py --trusted-connection
+python ETL.py --no-trusted-connection
+python ETL.py --server . --database DW_Dolar_Canasta --username sa --password secret
+python ETL.py --generar-historicos
+python ETL.py --no-generar-historicos
 ```
 
 - `--modo-carga`
@@ -131,7 +131,7 @@ python ETL_dolar_canasta.py --no-generar-historicos
 Al ejecutar:
 
 ```bash
-python ETL_dolar_canasta.py
+python ETL.py
 ```
 
 el ETL hace esto por defecto:
@@ -155,50 +155,76 @@ Ejemplos:
 Cambiar solo el servidor:
 
 ```bash
-python ETL_dolar_canasta.py --server .\\SQLEXPRESS
+python ETL.py --server .\\SQLEXPRESS
 ```
 
 Cambiar solo el modo:
 
 ```bash
-python ETL_dolar_canasta.py --modo-carga historico
+python ETL.py --modo-carga historico
 ```
 
 Desactivar solo la actualizacion de historicos:
 
 ```bash
-python ETL_dolar_canasta.py --no-generar-historicos
+python ETL.py --no-generar-historicos
 ```
 
 Usar autenticacion SQL:
 
 ```bash
-python ETL_dolar_canasta.py --server localhost --database DW_Dolar_Canasta --username sa --password secret
+python ETL.py --server localhost --database DW_Dolar_Canasta --username sa --password secret
 ```
 
 ## Estructura funcional
 
 ```text
-etl_dolar_canasta/
-|-- ETL_dolar_canasta.py
-|-- README.md
-|-- requirements.txt
+README.md
+requirements.txt
+requirements-dev.txt
+pytest.ini
+ETL.py
+dw_database/
+`-- 01 - DW_Canasta.sql
+etl/
 |-- data/
 |   `-- raw/
 |       |-- combustible_historico.csv
 |       |-- historico_canasta_cr.csv
 |       `-- tipo_cambio_historico.csv
 `-- src/
-    `-- etl_dolar_canasta/
+    |-- app.py
+    |-- cli.py
+    |-- admin_db_conn/
+    |   |-- config.py
+    |   `-- db.py
+    |-- etl_dolar_canasta/
+    |   |-- __init__.py
+    |   |-- extract.py
+    |   |-- load.py
+    |   |-- models.py
+    |   `-- transform.py
+    `-- etl_clima/
         |-- __init__.py
-        |-- app.py
-        |-- cli.py
-        |-- config.py
-        |-- db.py
+        |-- api_nasa.R
         |-- extract.py
         |-- load.py
         |-- models.py
         `-- transform.py
+tests/
+|-- smoke/
+|   `-- test_sql_smoke.py
+`-- unit/
+    |-- etl_clima/
+    |   |-- c_tst_extract.py
+    |   |-- c_tst_load.py
+    |   |-- c_tst_models.py
+    |   `-- c_tst_transform.py
+    `-- etl_dolar_canasta/
+        |-- dc_tst_extract.py
+        |-- dc_tst_load.py
+        |-- dc_tst_models.py
+        `-- dc_tst_transform.py
 ```
 
 ## Pruebas
@@ -208,13 +234,13 @@ Se agrego una zona de pruebas para validar la estabilidad base del proyecto sin 
 ### Instalar dependencias de desarrollo
 
 ```bash
-python -m pip install -r etl_dolar_canasta/requirements-dev.txt
+python -m pip install -r requirements-dev.txt
 ```
 
 ### Ejecutar pruebas unitarias
 
 ```bash
-python -m pytest -q etl_dolar_canasta/tests/unit
+python -m pytest -q tests/unit
 ```
 
 Estas pruebas cubren:
@@ -237,8 +263,19 @@ Se ejecuta solo si defines:
 Ejemplo:
 
 ```bash
-python -m pytest -q etl_dolar_canasta/tests/smoke -m smoke_sql
+python -m pytest -q tests/smoke -m smoke_sql
 ```
+
+## ETL de clima
+
+La arquitectura ahora incluye `etl/src/etl_clima/` como dominio separado para el tratamiento de datos climaticos.
+
+En esta fase:
+
+- `etl_clima` queda desacoplado del flujo principal de `ETL.py`
+- se conserva `api_nasa.R` dentro del dominio como referencia funcional de NASA POWER
+- se agregan modulos Python base para `extract`, `transform`, `load` y `models`
+- se incluyen pruebas unitarias iniciales bajo `tests/unit/etl_clima/`
 
 ## Procedimientos almacenados del DW
 

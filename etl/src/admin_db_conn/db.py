@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
-from etl_dolar_canasta.config import ParametrosETL
+from admin_db_conn.config import ParametrosETL
 
 
 class SqlServerDB:

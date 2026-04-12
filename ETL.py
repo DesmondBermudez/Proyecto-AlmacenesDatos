@@ -5,12 +5,12 @@ from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
-SRC_DIR = BASE_DIR / "src"
+SRC_DIR = BASE_DIR / "etl" / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from etl_dolar_canasta.app import ETLDolarCanastaApp
-from etl_dolar_canasta.cli import GestorCLI
+from app import ETLDolarCanastaApp
+from cli import GestorCLI
 
 
 def main() -> int:

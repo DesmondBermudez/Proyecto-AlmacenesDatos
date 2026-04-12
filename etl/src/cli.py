@@ -2,25 +2,25 @@ from __future__ import annotations
 
 import argparse
 
-from etl_dolar_canasta.config import ParametrosETL
+from admin_db_conn.config import ParametrosETL
 
 
 class GestorCLI:
     def __init__(self) -> None:
         self.parser = argparse.ArgumentParser(
-            prog="ETL_dolar_canasta.py",
+            prog="ETL.py",
             description=(
                 "ETL para tipo de cambio, combustibles y canasta basica.\n"
                 "Extrae datos, usa respaldos CSV cuando es necesario y carga el DW."
             ),
             epilog=(
                 "Ejemplos de uso:\n"
-                "  python ETL_dolar_canasta.py\n"
-                "  python ETL_dolar_canasta.py --modo-carga historico\n"
-                "  python ETL_dolar_canasta.py --server .\\SQLEXPRESS --trusted-connection\n"
-                "  python ETL_dolar_canasta.py --server localhost --database DW_Dolar_Canasta "
+                "  python ETL.py\n"
+                "  python ETL.py --modo-carga historico\n"
+                "  python ETL.py --server .\\SQLEXPRESS --trusted-connection\n"
+                "  python ETL.py --server localhost --database DW_Dolar_Canasta "
                 "--username sa --password secreto\n"
-                "  python ETL_dolar_canasta.py --no-generar-historicos"
+                "  python ETL.py --no-generar-historicos"
             ),
             formatter_class=argparse.RawTextHelpFormatter,
         )

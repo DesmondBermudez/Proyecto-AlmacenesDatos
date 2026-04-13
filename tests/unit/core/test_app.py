@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from app import ETLDolarCanastaApp
+from app import ETLApp
 
 
 def test_normalizar_clima_deriva_fecha_id_desde_anio_y_mes() -> None:
@@ -23,7 +23,7 @@ def test_normalizar_clima_deriva_fecha_id_desde_anio_y_mes() -> None:
         ]
     )
 
-    resultado = ETLDolarCanastaApp._normalizar_clima(dataframe)
+    resultado = ETLApp._normalizar_clima(dataframe)
 
     assert list(resultado.columns) == [
         "zona",
@@ -48,7 +48,7 @@ def test_filtrar_tipo_cambio_csv_por_alcance_conserva_solo_fechas_procesadas() -
     )
     df_actual = pd.DataFrame([{"fecha": "2026-04-12", "compra": 510.0, "venta": 514.0}])
 
-    resultado = ETLDolarCanastaApp._filtrar_tipo_cambio_csv_por_alcance(df_csv, df_actual)
+    resultado = ETLApp._filtrar_tipo_cambio_csv_por_alcance(df_csv, df_actual)
 
     assert len(resultado) == 1
     assert resultado.iloc[0]["fecha"] == "2026-04-12"

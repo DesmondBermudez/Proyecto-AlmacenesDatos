@@ -9,12 +9,20 @@ import pytest
 
 from admin_db_conn.config import ParametrosETL
 from admin_db_conn.db import SqlServerDB
+from dw_manager import CoordinadorDW
+from etl_cba.load import CargadorCBA
 from etl_clima.load import CargadorClima
-from etl_dolar_canasta.load import CargadorDW
-from etl_dolar_canasta.models import RegistroPrecioCombustible, RegistroProductoCombustible, RegistroTipoCambio
+from etl_combustible.load import CargadorCombustible
+from etl_combustible.models import RegistroPrecioCombustible, RegistroProductoCombustible
+from etl_dolar.load import CargadorDolar
+from etl_dolar.models import RegistroTipoCambio
 
 
 pytestmark = pytest.mark.smoke_sql
+
+
+def _quote_sql_identifier(identifier: str) -> str:
+    return f"[{identifier.replace(']', ']]')}]"
 
 
 def _split_sql_batches(script: str) -> list[str]:
@@ -52,6 +60,35 @@ def _build_params(database: str) -> ParametrosETL:
     )
 
 
+def _cleanup_orphan_smoke_databases(master_db: SqlServerDB) -> None:
+    conn = master_db.conectar()
+    conn.autocommit = True
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT name
+            FROM sys.databases
+            WHERE name LIKE 'DW_Dolar_Canasta_Smoke[_]%'
+            """
+        )
+        nombres = [fila[0] for fila in cursor.fetchall()]
+        for nombre in nombres:
+            nombre_literal = nombre.replace("'", "''")
+            nombre_identificador = _quote_sql_identifier(nombre)
+            cursor.execute(
+                f"""
+                IF DB_ID('{nombre_literal}') IS NOT NULL
+                BEGIN
+                    ALTER DATABASE {nombre_identificador} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                    DROP DATABASE {nombre_identificador};
+                END
+                """
+            )
+    finally:
+        conn.close()
+
+
 def test_sql_smoke_carga_staging_y_procedimientos() -> None:
     if os.getenv("ETL_SMOKE_SQL") != "1":
         pytest.skip("Smoke SQL deshabilitado")
@@ -60,6 +97,7 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
     database_name = f"DW_Dolar_Canasta_Smoke_{uuid.uuid4().hex[:8]}"
     master_db = SqlServerDB(_build_params("master"))
     smoke_db = SqlServerDB(_build_params(database_name))
+    _cleanup_orphan_smoke_databases(master_db)
 
     conn = master_db.conectar()
     conn.autocommit = True
@@ -74,9 +112,9 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
         conn.close()
 
     try:
-        cargador = CargadorDW(smoke_db)
-        cargador.asegurar_catalogos_base()
-        cargador.cargar_tipo_cambio(
+        coordinador = CoordinadorDW(smoke_db)
+        coordinador.asegurar_catalogos_base()
+        CargadorDolar(smoke_db).cargar_staging(
             [
                 RegistroTipoCambio(
                     fecha=pd.Timestamp("2026-04-11").date(),
@@ -85,7 +123,7 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
                 )
             ]
         )
-        cargador.cargar_combustibles(
+        CargadorCombustible(smoke_db).cargar_staging(
             [
                 RegistroProductoCombustible(
                     nombre_raw="Gasolina RON 95",
@@ -100,21 +138,18 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
                 )
             ],
         )
-        cargador.cargar_canasta(
+        CargadorCBA(smoke_db).cargar_staging(
             pd.DataFrame(
                 [
                     {
                         "Fecha": "2026-04-01",
-                        "NombreProducto": "ARROZ GRANO ENTERO 80%",
-                        "Categoria": "CEREALES",
-                        "EsImportado": 0,
-                        "UnidadMedida": "KILOGRAMO",
-                        "Provincia": "SAN JOSE",
-                        "Canton": "SAN JOSE",
-                        "Distrito": "CARMEN",
-                        "PrecioColones": 820.0,
-                        "PrecioBaseReferencia": 800.0,
-                        "FactorCanasta": 1.0,
+                        "FechaID": 20260401,
+                        "Zona": "Nacional",
+                        "CategoriaNombre": "CBA",
+                        "PeriodoTextoOriginal": "abr-26",
+                        "CostoPerCapita": 65000.0,
+                        "ArchivoOrigen": "CBANacional_2011X2026XMESyProducto.xlsx",
+                        "FuenteID": 5,
                     }
                 ]
             )
@@ -137,7 +172,7 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
                 ]
             )
         )
-        cargador.ejecutar_transformaciones_dw()
+        coordinador.ejecutar_transformaciones_dw()
 
         with smoke_db.connection() as conn:
             cursor = conn.cursor()
@@ -145,30 +180,49 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
             for tabla in (
                 "DimFecha",
                 "DimProducto",
-                "DimRegion",
+                "DimZonaCBA",
+                "DimCategoriaCBA",
                 "DimZonaClimatica",
                 "FactTipoCambio",
                 "FactPrecioCombustible",
-                "FactPreciosCanasta",
+                "FactCanastaInecOficial",
                 "FactClimaMensual",
             ):
                 cursor.execute(f"SELECT COUNT(*) FROM dbo.{tabla}")
                 counts[tabla] = cursor.fetchone()[0]
 
-            cursor.execute("SELECT COUNT(*) FROM dbo.StagingClimaMensual WHERE Precipitacion IS NOT NULL")
+            cursor.execute(
+                "SELECT COUNT(*) FROM dbo.StagingClimaMensual WHERE Precipitacion IS NOT NULL"
+            )
             staging_precipitacion = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM dbo.FactClimaMensual WHERE Precipitacion IS NOT NULL")
+            cursor.execute(
+                "SELECT COUNT(*) FROM dbo.FactClimaMensual WHERE Precipitacion IS NOT NULL"
+            )
             dw_precipitacion = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM dbo.StagingTipoCambio WHERE TipoCambioCompra IS NOT NULL AND TipoCambioVenta IS NOT NULL")
+            cursor.execute(
+                "SELECT COUNT(*) FROM dbo.StagingTipoCambio "
+                "WHERE TipoCambioCompra IS NOT NULL AND TipoCambioVenta IS NOT NULL"
+            )
             staging_tipo_cambio = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM dbo.FactTipoCambio WHERE TipoCambioCompra IS NOT NULL AND TipoCambioVenta IS NOT NULL")
+            cursor.execute(
+                "SELECT COUNT(*) FROM dbo.FactTipoCambio "
+                "WHERE TipoCambioCompra IS NOT NULL AND TipoCambioVenta IS NOT NULL"
+            )
             dw_tipo_cambio = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM dbo.StagingInec WHERE CostoPerCapita IS NOT NULL")
+            staging_cba = cursor.fetchone()[0]
+            cursor.execute(
+                "SELECT COUNT(*) FROM dbo.FactCanastaInecOficial WHERE CostoPerCapita IS NOT NULL"
+            )
+            dw_cba = cursor.fetchone()[0]
 
         assert all(valor > 0 for valor in counts.values())
         assert staging_precipitacion > 0
         assert dw_precipitacion == staging_precipitacion
         assert staging_tipo_cambio > 0
         assert dw_tipo_cambio == staging_tipo_cambio
+        assert staging_cba > 0
+        assert dw_cba == staging_cba
     finally:
         conn = master_db.conectar()
         conn.autocommit = True

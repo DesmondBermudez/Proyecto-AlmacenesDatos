@@ -28,15 +28,15 @@ def test_cli_test_integral_activa_pruebas_completas() -> None:
 def test_cli_test_etl_sin_objetivos_prueba_todos_los_etls() -> None:
     parametros = GestorCLI().parsear(["--test-ETL"])
 
-    assert parametros.objetivos_prueba_etl == ("dolar_canasta", "clima")
+    assert parametros.objetivos_prueba_etl == ("dolar", "combustible", "cba", "clima")
     assert parametros.debe_ejecutar_pruebas_etl
     assert not parametros.debe_ejecutar_pruebas_dbconn
 
 
 def test_cli_test_etl_permite_objetivos_especificos() -> None:
-    parametros = GestorCLI().parsear(["--test-ETL", "clima"])
+    parametros = GestorCLI().parsear(["--test-ETL", "combustible", "clima"])
 
-    assert parametros.objetivos_prueba_etl == ("clima",)
+    assert parametros.objetivos_prueba_etl == ("combustible", "clima")
 
 
 def test_cli_test_dbconn_activa_prueba_aislada() -> None:

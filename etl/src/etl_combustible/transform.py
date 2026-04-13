@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-import pandas as pd
-
-from etl_dolar_canasta.combustibles import clasificar_producto_combustible
-from etl_dolar_canasta.models import (
+from etl_combustible.combustibles import clasificar_producto_combustible
+from etl_combustible.models import (
     FUENTE_ARESEP,
     RegistroPrecioCombustible,
     RegistroProductoCombustible,
@@ -14,7 +10,8 @@ from etl_dolar_canasta.models import (
 
 class TransformadorCombustible:
     def transformar(
-        self, registros: list[dict]
+        self,
+        registros: list[dict],
     ) -> tuple[list[RegistroProductoCombustible], list[RegistroPrecioCombustible]]:
         productos: list[RegistroProductoCombustible] = []
         precios: list[RegistroPrecioCombustible] = []
@@ -58,14 +55,3 @@ class TransformadorCombustible:
             )
 
         return productos, precios
-
-
-class TransformadorCanasta:
-    def leer_y_transformar(self, ruta_csv: Path) -> pd.DataFrame:
-        df = pd.read_csv(ruta_csv)
-        for columna in ["Provincia", "Canton", "Distrito", "NombreProducto"]:
-            if columna in df.columns:
-                df[columna] = df[columna].astype(str).str.upper().str.strip()
-        df["PrecioColones"] = pd.to_numeric(df["PrecioColones"], errors="coerce")
-        df["Fecha"] = pd.to_datetime(df["Fecha"]).dt.strftime("%Y-%m-%d")
-        return df.dropna(subset=["PrecioColones"])

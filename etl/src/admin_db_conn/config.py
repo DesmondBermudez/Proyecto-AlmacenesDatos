@@ -28,8 +28,8 @@ class ParametrosETL:
         if self.test_etl_targets is None:
             return ()
         if not self.test_etl_targets or "all" in self.test_etl_targets:
-            return ("dolar_canasta", "clima")
-        orden = ("dolar_canasta", "clima")
+            return ("dolar", "combustible", "cba", "clima")
+        orden = ("dolar", "combustible", "cba", "clima")
         return tuple(objetivo for objetivo in orden if objetivo in self.test_etl_targets)
 
     @property

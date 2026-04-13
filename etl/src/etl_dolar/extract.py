@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import random
-import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -10,13 +9,7 @@ from typing import Callable, Generic, TypeVar
 import pandas as pd
 import requests
 
-from etl_dolar_canasta.combustibles import es_registro_combustible_utilizable
-from etl_dolar_canasta.models import (
-    FUENTE_ARESEP,
-    FUENTE_HACIENDA,
-    FUENTE_RESPALDO,
-    RegistroTipoCambio,
-)
+from etl_dolar.models import FUENTE_HACIENDA, FUENTE_RESPALDO, RegistroTipoCambio
 
 
 T = TypeVar("T")
@@ -73,7 +66,11 @@ class ExtractorTipoCambio:
     def __init__(self, ruta_respaldo_csv: Path) -> None:
         self.ruta_respaldo_csv = ruta_respaldo_csv
 
-    def obtener_diario(self, guardar_csv: bool = True, sobrescribir_csv: bool = False) -> RegistroTipoCambio:
+    def obtener_diario(
+        self,
+        guardar_csv: bool = True,
+        sobrescribir_csv: bool = False,
+    ) -> RegistroTipoCambio:
         resultado = _resolver_con_fallback(
             "tipo de cambio diario",
             api_fetcher=self._obtener_diario_api,
@@ -105,7 +102,10 @@ class ExtractorTipoCambio:
         return registros
 
     def _resolver_bloque(
-        self, inicio: datetime, fin: datetime, respaldo: pd.DataFrame
+        self,
+        inicio: datetime,
+        fin: datetime,
+        respaldo: pd.DataFrame,
     ) -> list[RegistroTipoCambio]:
         resultado = _resolver_con_fallback(
             f"tipo de cambio historico {inicio:%Y-%m-%d} a {fin:%Y-%m-%d}",
@@ -183,7 +183,9 @@ class ExtractorTipoCambio:
     def _crear_csv_vacio(self) -> None:
         self.ruta_respaldo_csv.parent.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(columns=["fecha", "compra", "venta"]).to_csv(
-            self.ruta_respaldo_csv, index=False, encoding="utf-8-sig"
+            self.ruta_respaldo_csv,
+            index=False,
+            encoding="utf-8-sig",
         )
 
     def _guardar_registros_csv(
@@ -195,6 +197,7 @@ class ExtractorTipoCambio:
             if not self.ruta_respaldo_csv.exists():
                 self._crear_csv_vacio()
             return
+
         self.ruta_respaldo_csv.parent.mkdir(parents=True, exist_ok=True)
         nuevos = pd.DataFrame(
             [
@@ -209,19 +212,25 @@ class ExtractorTipoCambio:
         if self.ruta_respaldo_csv.exists() and not sobrescribir:
             existentes = pd.read_csv(self.ruta_respaldo_csv)
             existentes["fecha"] = pd.to_datetime(
-                existentes["fecha"], format="mixed", errors="coerce"
+                existentes["fecha"],
+                format="mixed",
+                errors="coerce",
             )
             existentes = existentes.dropna(subset=["fecha"])
             existentes["fecha"] = existentes["fecha"].dt.strftime("%Y-%m-%d")
             combinados = pd.concat([existentes, nuevos], ignore_index=True)
         else:
             combinados = nuevos
+
         combinados = combinados.drop_duplicates(subset=["fecha"], keep="last")
         combinados = combinados.sort_values(by="fecha")
         combinados.to_csv(self.ruta_respaldo_csv, index=False, encoding="utf-8-sig")
 
     def _obtener_bloque_csv(
-        self, df: pd.DataFrame, inicio: datetime, fin: datetime
+        self,
+        df: pd.DataFrame,
+        inicio: datetime,
+        fin: datetime,
     ) -> list[RegistroTipoCambio]:
         if df.empty:
             return []
@@ -254,7 +263,8 @@ class ExtractorTipoCambio:
             cursor += timedelta(days=1)
         return bloque
 
-    def _clonar_registro(self, registro: RegistroTipoCambio, fuente_id: int) -> RegistroTipoCambio:
+    @staticmethod
+    def _clonar_registro(registro: RegistroTipoCambio, fuente_id: int) -> RegistroTipoCambio:
         return RegistroTipoCambio(
             fecha=registro.fecha,
             compra=registro.compra,
@@ -263,188 +273,3 @@ class ExtractorTipoCambio:
             moneda_referencia_id=registro.moneda_referencia_id,
             fuente_id=fuente_id,
         )
-
-
-class ExtractorCombustible:
-    URL = (
-        "https://datos.aresep.go.cr/ws.datosabiertos/Services/IE/"
-        "TarifaCombustible.svc/ObtenerHistoricoTarifasHidrocarburos"
-    )
-
-    def __init__(self, ruta_respaldo_csv: Path) -> None:
-        self.ruta_respaldo_csv = ruta_respaldo_csv
-
-    def obtener(self, guardar_csv: bool = True, sobrescribir_csv: bool = False) -> list[dict]:
-        resultado = _resolver_con_fallback(
-            "historico de combustibles",
-            api_fetcher=self._obtener_api,
-            csv_fetcher=self._leer_csv,
-            simulation_fetcher=self._simular_registros,
-            api_source_id=FUENTE_ARESEP,
-        )
-        registros = self._aplicar_fuente(resultado.datos, resultado.fuente_id)
-        if guardar_csv:
-            self._guardar_csv(registros, sobrescribir=sobrescribir_csv)
-        return registros
-
-    def _obtener_api(self) -> list[dict]:
-        ultimo_error: Exception | None = None
-        for _ in range(3):
-            try:
-                response = requests.get(self.URL, timeout=30)
-                response.raise_for_status()
-                return response.json().get("value", [])
-            except Exception as exc:
-                ultimo_error = exc
-                time.sleep(3)
-        if ultimo_error is not None:
-            raise ultimo_error
-        return []
-
-    def _leer_csv(self) -> list[dict]:
-        if not self.ruta_respaldo_csv.exists():
-            self._crear_csv_vacio()
-            return []
-        df = pd.read_csv(self.ruta_respaldo_csv)
-        registros = df.to_dict(orient="records")
-        return [registro for registro in registros if es_registro_combustible_utilizable(registro)]
-
-    def _crear_csv_vacio(self) -> None:
-        self.ruta_respaldo_csv.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(columns=["producto", "precioFinal", "fechaPublicacion"]).to_csv(
-            self.ruta_respaldo_csv, index=False, encoding="utf-8-sig"
-        )
-
-    def _guardar_csv(self, registros: list[dict], sobrescribir: bool = False) -> None:
-        self.ruta_respaldo_csv.parent.mkdir(parents=True, exist_ok=True)
-        registros_validos = [
-            registro for registro in registros if es_registro_combustible_utilizable(registro)
-        ]
-        if not registros_validos:
-            if not self.ruta_respaldo_csv.exists():
-                self._crear_csv_vacio()
-            return
-        nuevos = pd.DataFrame(
-            [
-                {
-                    "producto": reg.get("producto"),
-                    "precioFinal": reg.get("precioFinal"),
-                    "fechaPublicacion": reg.get("fechaPublicacion"),
-                }
-                for reg in registros_validos
-            ]
-        )
-        if self.ruta_respaldo_csv.exists() and not sobrescribir:
-            existentes = pd.read_csv(self.ruta_respaldo_csv)
-            combinados = pd.concat([existentes, nuevos], ignore_index=True)
-        else:
-            combinados = nuevos
-        combinados = combinados.drop_duplicates(
-            subset=["producto", "precioFinal", "fechaPublicacion"], keep="last"
-        )
-        combinados.to_csv(self.ruta_respaldo_csv, index=False, encoding="utf-8-sig")
-
-    def _simular_registros(self) -> list[dict]:
-        fecha_publicacion = datetime.now().strftime("%Y-%m-%dT00:00:00")
-        return [
-            {
-                "producto": "Gasolina RON 95",
-                "precioFinal": round(785 + random.uniform(-10, 10), 2),
-                "fechaPublicacion": fecha_publicacion,
-            },
-            {
-                "producto": "Gasolina RON 91",
-                "precioFinal": round(760 + random.uniform(-10, 10), 2),
-                "fechaPublicacion": fecha_publicacion,
-            },
-            {
-                "producto": "Diesel",
-                "precioFinal": round(690 + random.uniform(-10, 10), 2),
-                "fechaPublicacion": fecha_publicacion,
-            },
-        ]
-
-    def _aplicar_fuente(self, registros: list[dict], fuente_id: int) -> list[dict]:
-        return [{**registro, "fuente_id": fuente_id} for registro in registros]
-
-
-class GeneradorCanasta:
-    def __init__(self, ruta_salida: Path) -> None:
-        self.ruta_salida = ruta_salida
-
-    def generar(self) -> Path:
-        productos = [
-            {
-                "id": 1,
-                "nombre": "Arroz grano entero 80%",
-                "categoria": "Cereales",
-                "importado": False,
-                "unidad": "Kilogramo",
-                "precio_base": 820,
-            },
-            {
-                "id": 2,
-                "nombre": "Frijoles negros primera calidad",
-                "categoria": "Leguminosas",
-                "importado": False,
-                "unidad": "Gramos",
-                "precio_base": 1450,
-            },
-            {
-                "id": 3,
-                "nombre": "Leche fluida corta duracion",
-                "categoria": "Lacteos",
-                "importado": False,
-                "unidad": "Mililitros",
-                "precio_base": 850,
-            },
-            {
-                "id": 4,
-                "nombre": "Tomate",
-                "categoria": "Vegetales",
-                "importado": False,
-                "unidad": "Kilogramo",
-                "precio_base": 1500,
-            },
-            {
-                "id": 5,
-                "nombre": "Aceite vegetal",
-                "categoria": "Grasas",
-                "importado": True,
-                "unidad": "Mililitros",
-                "precio_base": 1450,
-            },
-        ]
-        ubicaciones = [
-            {"Provincia": "San Jose", "Canton": "San Jose", "Distrito": "Carmen"},
-            {"Provincia": "Alajuela", "Canton": "Alajuela", "Distrito": "Alajuela"},
-            {"Provincia": "Cartago", "Canton": "Cartago", "Distrito": "Oriental"},
-            {"Provincia": "Heredia", "Canton": "Heredia", "Distrito": "Heredia"},
-            {"Provincia": "Limon", "Canton": "Limon", "Distrito": "Limon"},
-        ]
-        data = []
-        fecha_inicio = datetime.now() - timedelta(days=5 * 365)
-        for fecha in pd.date_range(start=fecha_inicio, end=datetime.now(), freq="MS"):
-            for producto in productos:
-                for ubicacion in ubicaciones:
-                    variacion = random.uniform(0.95, 1.05)
-                    precio = round(producto["precio_base"] * variacion + random.uniform(-10, 10), 2)
-                    data.append(
-                        {
-                            "Fecha": fecha.strftime("%Y-%m-%d"),
-                            "ProductoID": producto["id"],
-                            "NombreProducto": producto["nombre"],
-                            "Categoria": producto["categoria"],
-                            "EsImportado": 1 if producto["importado"] else 0,
-                            "UnidadMedida": producto["unidad"],
-                            "Provincia": ubicacion["Provincia"],
-                            "Canton": ubicacion["Canton"],
-                            "Distrito": ubicacion["Distrito"],
-                            "PrecioColones": precio,
-                            "PrecioBaseReferencia": producto["precio_base"],
-                            "FactorCanasta": variacion,
-                        }
-                    )
-        self.ruta_salida.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(data).to_csv(self.ruta_salida, index=False, encoding="utf-8-sig")
-        return self.ruta_salida

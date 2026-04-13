@@ -32,7 +32,7 @@ def test_main_ejecuta_flujo_real_directamente_si_no_hay_pruebas(monkeypatch) -> 
             return 0
 
     monkeypatch.setattr(ETL, "GestorCLI", lambda: FakeCLI())
-    monkeypatch.setattr(ETL, "ETLDolarCanastaApp", FakeApp)
+    monkeypatch.setattr(ETL, "ETLApp", FakeApp)
 
     assert ETL.main() == 0
     assert llamadas == ["app"]
@@ -64,7 +64,7 @@ def test_main_ejecuta_pruebas_y_luego_flujo_real_si_pasan(monkeypatch) -> None:
 
     monkeypatch.setattr(ETL, "GestorCLI", lambda: FakeCLI())
     monkeypatch.setattr(ETL, "EjecutorPruebas", FakeRunner)
-    monkeypatch.setattr(ETL, "ETLDolarCanastaApp", FakeApp)
+    monkeypatch.setattr(ETL, "ETLApp", FakeApp)
 
     assert ETL.main() == 0
     assert llamadas == ["tests", "app"]
@@ -96,7 +96,7 @@ def test_main_no_continua_al_flujo_real_si_pruebas_fallan(monkeypatch) -> None:
 
     monkeypatch.setattr(ETL, "GestorCLI", lambda: FakeCLI())
     monkeypatch.setattr(ETL, "EjecutorPruebas", FakeRunner)
-    monkeypatch.setattr(ETL, "ETLDolarCanastaApp", FakeApp)
+    monkeypatch.setattr(ETL, "ETLApp", FakeApp)
 
     assert ETL.main() == 1
     assert llamadas == ["tests"]
@@ -128,7 +128,7 @@ def test_main_no_continua_al_flujo_real_si_only_test_esta_activo(monkeypatch) ->
 
     monkeypatch.setattr(ETL, "GestorCLI", lambda: FakeCLI())
     monkeypatch.setattr(ETL, "EjecutorPruebas", FakeRunner)
-    monkeypatch.setattr(ETL, "ETLDolarCanastaApp", FakeApp)
+    monkeypatch.setattr(ETL, "ETLApp", FakeApp)
 
     assert ETL.main() == 0
     assert llamadas == ["tests"]

@@ -11,8 +11,8 @@ class GestorCLI:
         self.parser = argparse.ArgumentParser(
             prog="ETL.py",
             description=(
-                "ETL para tipo de cambio, combustibles, canasta basica y clima.\n"
-                "Extrae datos desde APIs, respaldos CSV o simulacion controlada,\n"
+                "ETL para dolar, combustibles, CBA oficial del INEC y clima.\n"
+                "Extrae datos desde APIs, respaldos CSV, archivos oficiales XLSX y simulacion controlada,\n"
                 "puebla staging en SQL Server y luego carga el DW mediante procedimientos almacenados."
             ),
             epilog=(
@@ -24,9 +24,8 @@ class GestorCLI:
                 "  python ETL.py --test\n"
                 "  python ETL.py --test --only-test\n"
                 "  python ETL.py --test-ETL\n"
-                "  python ETL.py --test-ETL clima\n"
-                "  python ETL.py --test-ETL clima --only-test\n"
-                "  python ETL.py --test-ETL dolar_canasta clima --test-DBconn\n"
+                "  python ETL.py --test-ETL cba\n"
+                "  python ETL.py --test-ETL dolar combustible clima --test-DBconn\n"
                 "  python ETL.py --test-DBconn --only-test\n"
                 "  python ETL.py --server .\\SQLEXPRESS --trusted-connection\n"
                 "  python ETL.py --server localhost --database DW_Dolar_Canasta "
@@ -82,7 +81,7 @@ class GestorCLI:
             default="direct-insert",
             help=(
                 "Modo de ejecucion del ETL.\n"
-                "  direct-insert : procesa el tipo de cambio diario y ejecuta el resto del flujo\n"
+                "  direct-insert : procesa el dolar diario y ejecuta el resto del flujo\n"
                 "                  con el alcance actual de cada dominio.\n"
                 "  historico     : regenera historicos desde la fuente principal cuando es posible\n"
                 "                  y luego carga staging y DW."
@@ -95,7 +94,8 @@ class GestorCLI:
             default=True,
             help=(
                 "Actualiza o genera los CSV operativos de respaldo antes de poblar staging.\n"
-                "Aplica al historico de tipo de cambio, combustibles y clima.\n"
+                "Aplica al historico de dolar, combustibles y clima.\n"
+                "La CBA oficial usa archivos XLSX desde etl/data/raw/cba.\n"
                 "Default: activado."
             ),
         )
@@ -103,9 +103,7 @@ class GestorCLI:
             "--no-generar-historicos",
             dest="generar_historicos",
             action="store_false",
-            help=(
-                "No regenera los CSV operativos y reutiliza los respaldos existentes cuando el flujo lo permite."
-            ),
+            help="No regenera los CSV operativos y reutiliza los respaldos existentes cuando el flujo lo permite.",
         )
         self.parser.add_argument(
             "--test",
@@ -120,7 +118,7 @@ class GestorCLI:
             "--test-ETL",
             dest="test_etl",
             nargs="*",
-            choices=("all", "dolar_canasta", "clima"),
+            choices=("all", "dolar", "combustible", "cba", "clima"),
             help=(
                 "Ejecuta pruebas aisladas de ETL.\n"
                 "Si se invoca sin valores o con 'all', prueba todos los ETLs.\n"

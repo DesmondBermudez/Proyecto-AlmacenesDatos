@@ -79,7 +79,7 @@ def clasificar_producto_combustible(nombre_raw: object) -> dict[str, str] | None
             return _producto("Diesel Marino", categoria, "Diesel", unidad)
         if "TERMICO" in texto or "GENERACION TERMOELECTRICA" in texto:
             return _producto("Diesel Termico", categoria, "Diesel", unidad)
-        if "PESADO" in texto or "GASOLEO" in texto or "GASOLEO" in texto:
+        if "PESADO" in texto or "GASOLEO" in texto:
             return _producto("Diesel Pesado", categoria, "Diesel", unidad)
         if "PESCADORES" in texto:
             return _producto("Diesel Pescadores", categoria, "Diesel", unidad)

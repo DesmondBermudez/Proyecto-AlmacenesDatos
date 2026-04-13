@@ -10,7 +10,7 @@ SRC_DIR = BASE_DIR / "etl" / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from app import ETLDolarCanastaApp
+from app import ETLApp
 from cli import GestorCLI
 from runtime import formatear_duracion
 from test_runner import EjecutorPruebas
@@ -34,7 +34,7 @@ def main() -> int:
                 return resultado_pruebas
             if parametros.debe_ejecutar_solo_pruebas:
                 return 0
-        return ETLDolarCanastaApp(parametros, BASE_DIR).ejecutar()
+        return ETLApp(parametros, BASE_DIR).ejecutar()
     finally:
         print("=" * 50)
         print(f"TIEMPO TOTAL DE EJECUCION: {formatear_duracion(time.perf_counter() - inicio_total)}")

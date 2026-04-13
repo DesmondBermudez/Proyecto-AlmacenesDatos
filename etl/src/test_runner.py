@@ -13,7 +13,9 @@ from runtime import formatear_duracion
 class EjecutorPruebas:
     RUTA_PRUEBA_CORE = Path("tests") / "unit" / "core"
     RUTAS_PRUEBA_ETL = {
-        "dolar_canasta": Path("tests") / "unit" / "etl_dolar_canasta",
+        "dolar": Path("tests") / "unit" / "etl_dolar",
+        "combustible": Path("tests") / "unit" / "etl_combustible",
+        "cba": Path("tests") / "unit" / "etl_cba",
         "clima": Path("tests") / "unit" / "etl_clima",
     }
     RUTA_PRUEBA_DBCONN = Path("tests") / "smoke"
@@ -30,7 +32,7 @@ class EjecutorPruebas:
             resultado = self._ejecutar_pytest("TEST-CORE", "pruebas generales", self.RUTA_PRUEBA_CORE)
             if resultado.returncode != 0:
                 return resultado.returncode
-            resultado = self._ejecutar_pruebas_etl(("dolar_canasta", "clima"))
+            resultado = self._ejecutar_pruebas_etl(("dolar", "combustible", "cba", "clima"))
             if resultado != 0:
                 return resultado
             resultado = self._ejecutar_prueba_dbconn()

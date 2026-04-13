@@ -34,7 +34,9 @@ def test_runner_integral_ejecuta_core_etl_y_dbconn_en_orden(monkeypatch) -> None
     assert resultado == 0
     assert llamadas == [
         ("TEST-CORE", str(Path("tests") / "unit" / "core")),
-        ("TEST-ETL", str(Path("tests") / "unit" / "etl_dolar_canasta")),
+        ("TEST-ETL", str(Path("tests") / "unit" / "etl_dolar")),
+        ("TEST-ETL", str(Path("tests") / "unit" / "etl_combustible")),
+        ("TEST-ETL", str(Path("tests") / "unit" / "etl_cba")),
         ("TEST-ETL", str(Path("tests") / "unit" / "etl_clima")),
         ("TEST-DBCONN", str(Path("tests") / "smoke")),
     ]

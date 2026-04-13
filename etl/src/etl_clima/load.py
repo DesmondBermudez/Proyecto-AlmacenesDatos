@@ -107,7 +107,7 @@ class CargadorClima:
                             Dia,
                             Mes,
                             NombreMes,
-                            Año,
+                            Anio,
                             Trimestre
                         )
                         VALUES (?, ?, ?, ?, ?, ?, ?)

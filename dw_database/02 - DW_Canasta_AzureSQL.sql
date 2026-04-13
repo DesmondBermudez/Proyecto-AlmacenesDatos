@@ -655,22 +655,22 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    ;WITH staging_normalizado AS (
+        SELECT
+            CONVERT(DATE, LEFT(s.FechaRaw, 10)) AS Fecha,
+            TRIM(UPPER(s.NombreProductoRaw)) AS NombreProductoNormalizado,
+            s.FuenteID,
+            s.Precio
+        FROM dbo.StagingPrecioGasolina s
+    ),
+    productos_normalizados AS (
+        SELECT
+            p.ProductoID,
+            TRIM(UPPER(p.NombreProducto)) AS NombreProductoNormalizado
+        FROM dbo.DimProducto p
+    )
     MERGE dbo.FactPrecioCombustible AS Target
     USING (
-        WITH staging_normalizado AS (
-            SELECT
-                CONVERT(DATE, LEFT(s.FechaRaw, 10)) AS Fecha,
-                TRIM(UPPER(s.NombreProductoRaw)) AS NombreProductoNormalizado,
-                s.FuenteID,
-                s.Precio
-            FROM dbo.StagingPrecioGasolina s
-        ),
-        productos_normalizados AS (
-            SELECT
-                p.ProductoID,
-                TRIM(UPPER(p.NombreProducto)) AS NombreProductoNormalizado
-            FROM dbo.DimProducto p
-        )
         SELECT
             f.FechaID,
             p.ProductoID,
@@ -708,31 +708,31 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    ;WITH staging_normalizado AS (
+        SELECT
+            s.FechaID,
+            TRIM(UPPER(s.Zona)) AS ZonaNormalizada,
+            TRIM(UPPER(s.CategoriaNombre)) AS CategoriaNormalizada,
+            s.PeriodoTextoOriginal,
+            s.FuenteID,
+            s.CostoPerCapita,
+            s.ArchivoOrigen
+        FROM dbo.StagingInec s
+    ),
+    zonas_normalizadas AS (
+        SELECT
+            z.ZonaCBAID,
+            TRIM(UPPER(z.NombreZona)) AS ZonaNormalizada
+        FROM dbo.DimZonaCBA z
+    ),
+    categorias_normalizadas AS (
+        SELECT
+            c.CategoriaCBAID,
+            TRIM(UPPER(c.NombreCategoria)) AS CategoriaNormalizada
+        FROM dbo.DimCategoriaCBA c
+    )
     MERGE dbo.FactCanastaInecOficial AS Target
     USING (
-        WITH staging_normalizado AS (
-            SELECT
-                s.FechaID,
-                TRIM(UPPER(s.Zona)) AS ZonaNormalizada,
-                TRIM(UPPER(s.CategoriaNombre)) AS CategoriaNormalizada,
-                s.PeriodoTextoOriginal,
-                s.FuenteID,
-                s.CostoPerCapita,
-                s.ArchivoOrigen
-            FROM dbo.StagingInec s
-        ),
-        zonas_normalizadas AS (
-            SELECT
-                z.ZonaCBAID,
-                TRIM(UPPER(z.NombreZona)) AS ZonaNormalizada
-            FROM dbo.DimZonaCBA z
-        ),
-        categorias_normalizadas AS (
-            SELECT
-                c.CategoriaCBAID,
-                TRIM(UPPER(c.NombreCategoria)) AS CategoriaNormalizada
-            FROM dbo.DimCategoriaCBA c
-        )
         SELECT
             s.FechaID,
             z.ZonaCBAID,
@@ -798,30 +798,30 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    ;WITH staging_normalizado AS (
+        SELECT
+            s.FechaID,
+            TRIM(UPPER(s.NombreZona)) AS NombreZonaNormalizado,
+            s.Latitud,
+            s.Longitud,
+            s.FuenteID,
+            s.TempMax,
+            s.TempMin,
+            s.Precipitacion,
+            s.Humedad,
+            s.RadiacionSolar
+        FROM dbo.StagingClimaMensual s
+    ),
+    zonas_normalizadas AS (
+        SELECT
+            z.ZonaClimaticaID,
+            TRIM(UPPER(z.NombreZona)) AS NombreZonaNormalizado,
+            z.Latitud,
+            z.Longitud
+        FROM dbo.DimZonaClimatica z
+    )
     MERGE dbo.FactClimaMensual AS Target
     USING (
-        WITH staging_normalizado AS (
-            SELECT
-                s.FechaID,
-                TRIM(UPPER(s.NombreZona)) AS NombreZonaNormalizado,
-                s.Latitud,
-                s.Longitud,
-                s.FuenteID,
-                s.TempMax,
-                s.TempMin,
-                s.Precipitacion,
-                s.Humedad,
-                s.RadiacionSolar
-            FROM dbo.StagingClimaMensual s
-        ),
-        zonas_normalizadas AS (
-            SELECT
-                z.ZonaClimaticaID,
-                TRIM(UPPER(z.NombreZona)) AS NombreZonaNormalizado,
-                z.Latitud,
-                z.Longitud
-            FROM dbo.DimZonaClimatica z
-        )
         SELECT
             s.FechaID,
             z.ZonaClimaticaID,

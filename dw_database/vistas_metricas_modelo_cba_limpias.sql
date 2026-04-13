@@ -35,7 +35,7 @@ WITH target_total AS (
         f.Mes,
         f.Trimestre,
         c.ZonaCBAID,
-        UPPER(LTRIM(RTRIM(z.NombreZona))) AS NombreZona,
+        UPPER(TRIM(z.NombreZona)) AS NombreZona,
         c.CostoPerCapita AS CBA_TotalMensual
     FROM dbo.FactCanastaInecOficial c
     INNER JOIN dbo.DimFecha f
@@ -44,7 +44,7 @@ WITH target_total AS (
         ON z.ZonaCBAID = c.ZonaCBAID
     INNER JOIN dbo.DimCategoriaCBA dc
         ON dc.CategoriaCBAID = c.CategoriaCBAID
-    WHERE UPPER(LTRIM(RTRIM(z.NombreZona))) IN ('RURAL', 'URBANO', 'NACIONAL')
+    WHERE UPPER(TRIM(z.NombreZona)) IN ('RURAL', 'URBANO', 'NACIONAL')
       AND TRIM(UPPER(dc.NombreCategoria)) = 'CBA'
 ),
 categorias AS (
@@ -57,7 +57,7 @@ categorias AS (
         ON f.FechaID = c.FechaID
     INNER JOIN dbo.DimZonaCBA z
         ON z.ZonaCBAID = c.ZonaCBAID
-    WHERE UPPER(LTRIM(RTRIM(z.NombreZona))) IN ('RURAL', 'URBANO', 'NACIONAL')
+    WHERE UPPER(TRIM(z.NombreZona)) IN ('RURAL', 'URBANO', 'NACIONAL')
     GROUP BY
         DATEFROMPARTS(f.Anio, f.Mes, 1),
         c.ZonaCBAID

@@ -25,6 +25,11 @@ from etl_combustible.transform import TransformadorCombustible
 from etl_dolar.extract import ExtractorTipoCambio
 from etl_dolar.load import CargadorDolar
 from runtime import formatear_duracion
+from sinteticos import (
+    CargadorCombustibleSintetico,
+    FUENTE_SINTETICA_COMBUSTIBLE,
+    GeneradorCombustibleSintetico,
+)
 from trazabilidad import (
     ValidadorTrazabilidad,
     auditar_tabla_sql_no_nulos,
@@ -49,6 +54,8 @@ class ETLApp:
         )
         self.transformador_combustible = TransformadorCombustible()
         self.cargador_combustible = CargadorCombustible(self.db)
+        self.generador_combustible_sintetico = GeneradorCombustibleSintetico()
+        self.cargador_combustible_sintetico = CargadorCombustibleSintetico(self.db)
         self.extractor_cba = ExtractorCBAOficial(self.raw_cba_dir)
         self.transformador_cba = TransformadorCBA()
         self.validador_cba_oficial = ValidadorCBAOficial()
@@ -73,6 +80,21 @@ class ETLApp:
         guardar_historicos = self.parametros.es_historico or self.parametros.generar_historicos
 
         try:
+            if self.parametros.debe_ejecutar_solo_sinteticos:
+                print("Modo sintetico dedicado")
+                self._ejecutar_etapa(
+                    "Asegurar catalogos base",
+                    self.coordinador_dw.asegurar_catalogos_base,
+                )
+                self._ejecutar_carga_sintetica_combustible()
+                print("Proceso sintetico finalizado exitosamente")
+                self._imprimir_resumen_dominios()
+                print(
+                    f"[ETL] Tiempo total del flujo real: "
+                    f"{formatear_duracion(time.perf_counter() - self._inicio_flujo)}"
+                )
+                return 0
+
             self._ejecutar_etapa("Limpieza de staging", self.coordinador_dw.limpiar_staging)
 
             if self.parametros.es_historico:
@@ -275,6 +297,8 @@ class ETLApp:
             self._actualizar_estadisticas("clima", dw=perfil_clima_dw.filas)
 
             self._ejecutar_etapa("Auditoria del DW", self._auditar_dw_sql)
+            if self.parametros.debe_generar_sinteticos:
+                self._ejecutar_carga_sintetica_combustible()
             print("Proceso finalizado exitosamente")
             self._imprimir_resumen_dominios()
             print(
@@ -686,6 +710,31 @@ class ETLApp:
             f"Acumulado flujo real: {formatear_duracion(acumulado)}"
         )
         return resultado
+
+    def _ejecutar_carga_sintetica_combustible(self) -> None:
+        resumen = self._ejecutar_etapa(
+            "Carga staging combustible sintetico",
+            lambda: self.cargador_combustible_sintetico.cargar_staging(
+                self.generador_combustible_sintetico
+            ),
+        )
+        self._ejecutar_etapa(
+            "Carga DW combustible sintetico",
+            self.coordinador_dw.ejecutar_transformaciones_combustible,
+        )
+        total_sintetico_dw = self._ejecutar_etapa(
+            "Conteo DW combustible sintetico",
+            lambda: self.coordinador_dw.contar_fact_precio_combustible(
+                FUENTE_SINTETICA_COMBUSTIBLE
+            ),
+        )
+        self._actualizar_estadisticas(
+            "combustible_sintetico",
+            productos=resumen.total_productos,
+            fechas=resumen.total_fechas,
+            staging=resumen.total_registros,
+            dw=total_sintetico_dw,
+        )
 
     @staticmethod
     def _normalizar_tipo_cambio_csv(dataframe: pd.DataFrame) -> pd.DataFrame:

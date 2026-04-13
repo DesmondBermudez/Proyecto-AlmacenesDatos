@@ -23,6 +23,9 @@ class GestorCLI:
                 "  python ETL.py --modo-carga historico --no-generar-historicos\n"
                 "  python ETL.py --test\n"
                 "  python ETL.py --test --only-test\n"
+                "  python ETL.py --sinteticos\n"
+                "  python ETL.py --test --sinteticos\n"
+                "  python ETL.py --modo-carga historico --sinteticos\n"
                 "  python ETL.py --test-ETL\n"
                 "  python ETL.py --test-ETL cba\n"
                 "  python ETL.py --test-ETL dolar combustible clima --test-DBconn\n"
@@ -143,6 +146,15 @@ class GestorCLI:
                 "Si se combina con --modo-carga, el modo se ignora para esa ejecucion."
             ),
         )
+        self.parser.add_argument(
+            "--sinteticos",
+            action="store_true",
+            help=(
+                "Genera e inserta data sintetica de combustible.\n"
+                "Si se usa solo, ejecuta un flujo sintetico dedicado.\n"
+                "Si se combina con el resto del flujo, espera a que el ETL normal termine y luego inserta los registros sinteticos."
+            ),
+        )
 
     def parsear(self, args: list[str] | None = None) -> ParametrosETL:
         raw_args = list(sys.argv[1:] if args is None else args)
@@ -151,6 +163,14 @@ class GestorCLI:
             self.parser.error("--test no puede combinarse con --test-ETL ni --test-DBconn")
         if ns.only_test and not (ns.test or ns.test_etl is not None or ns.test_dbconn):
             self.parser.error("--only-test requiere --test, --test-ETL o --test-DBconn")
+        flujo_principal_indicado = any(
+            argumento in raw_args
+            for argumento in (
+                "--modo-carga",
+                "--generar-historicos",
+                "--no-generar-historicos",
+            )
+        )
 
         return ParametrosETL(
             server=ns.server,
@@ -166,4 +186,6 @@ class GestorCLI:
             test_dbconn_enabled=ns.test_dbconn,
             only_test_enabled=ns.only_test,
             modo_carga_indicado="--modo-carga" in raw_args,
+            sinteticos_enabled=ns.sinteticos,
+            flujo_principal_indicado=flujo_principal_indicado,
         )

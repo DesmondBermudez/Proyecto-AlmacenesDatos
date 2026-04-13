@@ -68,3 +68,19 @@ def test_cli_registra_modo_carga_cuando_only_test_esta_activo() -> None:
 
     assert parametros.only_test_enabled
     assert parametros.modo_carga_indicado
+
+
+def test_cli_sinteticos_solo_activa_flujo_sintetico_dedicado() -> None:
+    parametros = GestorCLI().parsear(["--sinteticos"])
+
+    assert parametros.sinteticos_enabled
+    assert parametros.debe_generar_sinteticos
+    assert parametros.debe_ejecutar_solo_sinteticos
+
+
+def test_cli_sinteticos_con_flujo_normal_no_activa_modo_solo_sintetico() -> None:
+    parametros = GestorCLI().parsear(["--test", "--sinteticos"])
+
+    assert parametros.sinteticos_enabled
+    assert parametros.debe_generar_sinteticos
+    assert not parametros.debe_ejecutar_solo_sinteticos

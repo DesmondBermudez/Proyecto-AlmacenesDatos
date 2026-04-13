@@ -18,6 +18,8 @@ class ParametrosETL:
     test_dbconn_enabled: bool = False
     only_test_enabled: bool = False
     modo_carga_indicado: bool = False
+    sinteticos_enabled: bool = False
+    flujo_principal_indicado: bool = False
 
     @property
     def es_historico(self) -> bool:
@@ -51,6 +53,18 @@ class ParametrosETL:
     @property
     def debe_ejecutar_solo_pruebas(self) -> bool:
         return self.only_test_enabled and self.debe_ejecutar_pruebas
+
+    @property
+    def debe_generar_sinteticos(self) -> bool:
+        return self.sinteticos_enabled
+
+    @property
+    def debe_ejecutar_solo_sinteticos(self) -> bool:
+        return (
+            self.sinteticos_enabled
+            and not self.flujo_principal_indicado
+            and not self.debe_ejecutar_pruebas
+        )
 
     def cadena_conexion(self) -> str:
         partes = [

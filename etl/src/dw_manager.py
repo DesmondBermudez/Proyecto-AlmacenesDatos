@@ -31,6 +31,7 @@ class CoordinadorDW:
                 (3, "Respaldo local o simulado", "RESPALDO"),
                 (4, "NASA POWER", "NASA_POWER"),
                 (5, "INEC", "INEC"),
+                (6, "Generador sintetico de combustible", "SINTETICO"),
             ):
                 cursor.execute(
                     """
@@ -87,3 +88,26 @@ class CoordinadorDW:
             ):
                 cursor.execute(procedimiento)
             conn.commit()
+
+    def ejecutar_transformaciones_combustible(self) -> None:
+        with self.db.connection() as conn:
+            cursor = conn.cursor()
+            for procedimiento in (
+                "EXEC dbo.sp_Transform_DimFecha",
+                "EXEC dbo.sp_Transform_DimProducto",
+                "EXEC dbo.sp_Load_FactPrecioCombustible",
+            ):
+                cursor.execute(procedimiento)
+            conn.commit()
+
+    def contar_fact_precio_combustible(self, fuente_id: int | None = None) -> int:
+        with self.db.connection() as conn:
+            cursor = conn.cursor()
+            if fuente_id is None:
+                cursor.execute("SELECT COUNT(*) FROM dbo.FactPrecioCombustible")
+            else:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM dbo.FactPrecioCombustible WHERE FuenteID = ?",
+                    (fuente_id,),
+                )
+            return int(cursor.fetchone()[0])

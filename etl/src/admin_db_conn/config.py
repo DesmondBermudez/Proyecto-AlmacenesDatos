@@ -20,6 +20,8 @@ class ParametrosETL:
     modo_carga_indicado: bool = False
     sinteticos_enabled: bool = False
     flujo_principal_indicado: bool = False
+    clima_start_year: int | None = None
+    clima_end_year: int | None = None
 
     @property
     def es_historico(self) -> bool:
@@ -71,6 +73,7 @@ class ParametrosETL:
             f"DRIVER={{{self.driver}}}",
             f"SERVER={self.server}",
             f"DATABASE={self.database}",
+            "Encrypt=no",
             "TrustServerCertificate=yes",
         ]
         if self.username and self.password:

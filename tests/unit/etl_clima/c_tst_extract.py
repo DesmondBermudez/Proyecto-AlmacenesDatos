@@ -116,6 +116,57 @@ def test_extractor_clima_hace_fallback_a_csv_dummy(
     assert ruta_csv.exists()
 
 
+def test_extractor_clima_combina_api_y_respaldo_para_rellenar_huecos(
+    monkeypatch: pytest.MonkeyPatch, local_tmp_path
+) -> None:
+    ruta_csv = local_tmp_path / "clima.csv"
+    pd.DataFrame(
+        [
+            {
+                "Zona": "Matina",
+                "Latitud": 10.0,
+                "Longitud": -83.35,
+                "Anio": 2011,
+                "Mes": 1,
+                "Temp_Max": 30.0,
+                "Temp_Min": 22.0,
+                "Precipitacion": 5.0,
+                "Humedad": 84.0,
+                "RadiacionSolar": 4.8,
+            }
+        ]
+    ).to_csv(ruta_csv, index=False)
+    extractor = ExtractorClimaNASA(ruta_respaldo_csv=ruta_csv)
+
+    monkeypatch.setattr(
+        extractor,
+        "obtener_desde_api",
+        lambda guardar_csv=False: pd.DataFrame(
+            [
+                {
+                    "Zona": "Matina",
+                    "Latitud": 10.0,
+                    "Longitud": -83.35,
+                    "Anio": 2011,
+                    "Mes": 2,
+                    "Temp_Max": 30.5,
+                    "Temp_Min": 22.1,
+                    "Precipitacion": 5.1,
+                    "Humedad": 84.5,
+                    "RadiacionSolar": 4.9,
+                }
+            ]
+        ),
+    )
+
+    resultado = extractor.obtener(guardar_csv=True)
+
+    assert len(resultado) == 2
+    assert set(resultado["Mes"].tolist()) == {1, 2}
+    df_guardado = pd.read_csv(ruta_csv)
+    assert len(df_guardado) == 2
+
+
 def test_extractor_clima_falla_si_api_y_csv_no_estan_disponibles(
     monkeypatch: pytest.MonkeyPatch, local_tmp_path
 ) -> None:

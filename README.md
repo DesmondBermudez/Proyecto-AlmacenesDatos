@@ -1,132 +1,96 @@
-# ETL para Dolar, Combustibles, CBA Oficial y Clima
+# Sistema Predictivo de la Canasta Basica Alimentaria de Costa Rica
 
-Pipeline ETL en Python + SQL Server orientado a consolidar datos de interes economico y operativo en un Data Warehouse unico. El flujo integra cuatro dominios desacoplados, aplica validaciones, carga tablas de staging y materializa dimensiones y hechos mediante procedimientos almacenados.
+Proyecto de analitica y prediccion orientado a estimar el valor mensual de la Canasta Basica Alimentaria (CBA) por zona a partir de un Data Warehouse en SQL Server.
 
-## Vision general
+El enfoque principal del repositorio es el modelo predictivo. Los ETLs existen para alimentar ese modelo con datos consistentes, limpios y comparables desde varias fuentes economicas y climaticas.
 
-El proyecto procesa informacion de:
+## Objetivo del proyecto
 
-- tipo de cambio del dolar
-- precios de combustibles
-- canasta basica alimentaria oficial
-- clima mensual para zonas bananeras de referencia
+El sistema busca predecir el comportamiento mensual de la CBA para las zonas:
 
-Cada dominio sigue la misma idea base:
+- `NACIONAL`
+- `RURAL`
+- `URBANO`
 
-1. extraer datos desde su fuente principal
-2. usar respaldo local o simulacion si la fuente no responde
-3. transformar y normalizar
-4. cargar staging en SQL Server
-5. poblar el DW final con procedimientos almacenados
+El modelo usa como variable objetivo el valor oficial de la CBA y combina:
 
-## Que resuelve
+- historial de la propia CBA
+- tipo de cambio
+- precio de combustibles
+- clima mensual
 
-- centraliza fuentes heterogeneas en un modelo analitico comun
-- separa claramente extraccion, transformacion y carga
-- conserva respaldos CSV para continuidad operativa
-- valida consistencia antes de poblar el DW
-- permite ejecutar pruebas tecnicas y de conexion antes del flujo real
-- soporta una carga sintetica opcional para combustibles
+La solucion compara dos algoritmos de regresion:
 
-## Arquitectura
+- regresion lineal
+- random forest
+
+Ambos se entrenan, se validan con datos historicos y luego generan pronosticos futuros sobre el mismo conjunto de entrada.
+
+## Vision funcional
 
 ```mermaid
 flowchart LR
-    A["Fuentes externas y archivos oficiales"] --> B["Extractores Python"]
-    B --> C["Transformacion y validacion"]
-    C --> D["Tablas de staging"]
-    D --> E["Procedimientos almacenados"]
-    E --> F["Dimensiones y hechos del DW"]
+    A["Archivos oficiales y APIs"] --> B["ETLs por dominio"]
+    B --> C["Staging SQL Server"]
+    C --> D["DW dimensional"]
+    D --> E["Vistas limpias para modelo"]
+    E --> F["Entrenamiento y validacion"]
+    F --> G["Prediccion CBA por zona"]
 ```
 
-### Componentes principales
+## Como funciona el sistema
 
-- `ETL.py`: punto de entrada del proyecto.
-- `etl/src/app.py`: orquesta el flujo completo.
-- `etl/src/dw_manager.py`: limpia staging, asegura catalogos base y ejecuta las cargas finales del DW.
-- `etl/src/etl_dolar`: integra API de Hacienda, respaldo CSV y simulacion.
-- `etl/src/etl_combustible`: integra servicio de ARESEP, respaldo CSV y simulacion.
-- `etl/src/etl_cba`: lee archivos oficiales del INEC y valida reconciliacion contra el consolidado.
-- `etl/src/etl_clima`: extrae datos de NASA POWER y mantiene respaldo CSV.
-- `dw_database/01 - DW_Canasta.sql`: script base para SQL Server.
-- `dw_database/02 - DW_Canasta_AzureSQL.sql`: variante para Azure SQL Database.
+El proyecto se divide en dos capas:
 
-## Flujo real del ETL
+1. Capa de datos  
+   Los ETLs extraen, transforman y cargan la informacion en el DW.
 
-La aplicacion ejecuta los dominios en este orden:
+2. Capa predictiva  
+   El modulo del modelo consume vistas limpias del DW, valida el comportamiento historico de los algoritmos y genera predicciones futuras.
 
-1. dolar
-2. combustibles
-3. CBA oficial
-4. clima
+## ETLs como base del modelo
 
-Antes de cargar el DW final, el flujo:
+Los ETLs no son un fin separado; son el proceso que prepara las variables que usa el modelo.
 
-- limpia las tablas de staging
-- registra y valida trazabilidad por dominio
-- audita columnas obligatorias
-- asegura catalogos compartidos como `DimFuenteDatos` y `DimMoneda`
-- ejecuta procedimientos almacenados para transformar staging en tablas analiticas
+### Dominios ETL
 
-```mermaid
-flowchart TB
-    A["ETL.py"] --> B["ETLApp"]
-    B --> C["Limpiar staging"]
-    C --> D["Extraer y transformar dominios"]
+- `etl_dolar`
+  - obtiene el tipo de cambio
+  - mantiene respaldo historico en CSV
+  - carga `FactTipoCambio`
 
-    D --> D1["Dolar"]
-    D --> D2["Combustibles"]
-    D --> D3["CBA oficial"]
-    D --> D4["Clima"]
+- `etl_combustible`
+  - obtiene precios historicos de combustibles
+  - clasifica productos
+  - carga `FactPrecioCombustible`
 
-    D1 --> S1["StagingTipoCambio"]
-    D2 --> S2["StagingProducto + StagingPrecioGasolina"]
-    D3 --> S3["StagingInec"]
-    D4 --> S4["StagingZonaClimatica + StagingClimaMensual"]
+- `etl_cba`
+  - lee los archivos oficiales `.xlsx` del INEC
+  - transforma el detalle por categoria y zona
+  - contrasta el consolidado mensual oficial
+  - carga `FactCanastaInecOficial`
 
-    S1 --> E["Asegurar catalogos base"]
-    S2 --> E
-    S3 --> E
-    S4 --> E
+- `etl_clima`
+  - consulta NASA POWER
+  - consolida temperatura, precipitacion, humedad y radiacion solar
+  - carga `FactClimaMensual`
 
-    E --> F["Procedimientos del DW"]
-    F --> G["Dimensiones"]
-    F --> H["Hechos"]
-```
+### Que aporta cada ETL al modelo
 
-## Fuentes de datos
+| ETL | Variable o uso en el modelo |
+| --- | --- |
+| Dolar | Tipo de cambio mensual |
+| Combustible | Precio promedio mensual de combustibles |
+| CBA oficial | Variable objetivo `CBA_TotalMensual` |
+| Clima | Variables exogenas mensuales de clima |
 
-| Dominio | Fuente principal | Respaldo |
-| --- | --- | --- |
-| Dolar | API del Ministerio de Hacienda de Costa Rica | `etl/data/raw/tipo_cambio_historico.csv` |
-| Combustibles | Servicio historico de ARESEP | `etl/data/raw/combustible_historico.csv` |
-| CBA oficial | Archivos XLSX del INEC | `etl/data/raw/cba/` |
-| Clima | NASA POWER | `etl/data/raw/clima_historico.csv` |
+## Data Warehouse del modelo
 
-### Detalle por dominio
+El modelo predictivo se apoya sobre un DW con tres capas:
 
-- Dolar: carga tipo de cambio de compra y venta.
-- Combustibles: clasifica productos y carga precios historicos.
-- CBA oficial: transforma archivos por zona y categoria, y valida contra un consolidado mensual.
-- Clima: consolida temperatura maxima, temperatura minima, precipitacion, humedad y radiacion solar por zona y mes.
-
-## Modelo del Data Warehouse
-
-El modelo se organiza en tres capas:
-
-- `staging`: aterrizaje temporal de los datos procesados
-- `dimensiones`: entidades descriptivas y catalogos compartidos
-- `hechos`: tablas analiticas finales
-
-### Dimensiones y catalogos
-
-- `DimFecha`
-- `DimFuenteDatos`
-- `DimMoneda`
-- `DimProducto`
-- `DimZonaCBA`
-- `DimCategoriaCBA`
-- `DimZonaClimatica`
+- `staging`
+- `dimensiones`
+- `hechos`
 
 ### Tablas de staging
 
@@ -138,70 +102,162 @@ El modelo se organiza en tres capas:
 - `StagingZonaClimatica`
 - `StagingClimaMensual`
 
-### Tablas de hechos
+### Dimensiones
+
+- `DimFecha`
+- `DimFuenteDatos`
+- `DimMoneda`
+- `DimProducto`
+- `DimZonaCBA`
+- `DimCategoriaCBA`
+- `DimZonaClimatica`
+
+### Hechos
 
 - `FactTipoCambio`
 - `FactPrecioCombustible`
 - `FactCanastaInecOficial`
 - `FactClimaMensual`
 
-### Flujo de carga hacia el DW
+## Vistas limpias para el modelo
+
+El modelo no entrena directamente sobre las tablas base. Primero usa vistas limpias que organizan el flujo de prediccion.
+
+### `dbo.vw_CBA_TargetMensual_Zona_Limpia`
+
+Define la variable objetivo del modelo:
+
+- una fila por `mes + zona`
+- toma el total oficial `CBA`
+- expone `CBA_TotalMensual`
+
+### `dbo.vw_CBA_CoberturaFuentesMensual`
+
+Muestra que meses tienen cobertura completa entre:
+
+- CBA
+- tipo de cambio
+- combustibles
+- clima
+
+Sirve para auditar si el modelo esta entrenando sobre meses completos.
+
+### `dbo.vw_CBA_ExogenasMensuales_Limpias`
+
+Consolida las variables exogenas mensuales sin nulos:
+
+- `TipoCambioPromedioMensual`
+- `PrecioCombustiblePromedioMensual`
+- `TempMaxProm`
+- `TempMinProm`
+- `PrecipitacionProm`
+- `HumedadProm`
+- `RadiacionSolarProm`
+
+### `dbo.vw_CBA_ModeloSimple_Base`
+
+Une:
+
+- target mensual por zona
+- variables exogenas limpias
+- variable calendario `FlagFinAnio`
+
+### `dbo.vw_CBA_ModeloSimple_Entrenamiento`
+
+Expone el dataset final de entrenamiento:
+
+- target `CBA_TotalMensual`
+- zona
+- `lag_1`
+- `lag_3`
+- exogenas mensuales
+- variables de calendario
+
+### `dbo.vw_CBA_ExogenasMensuales_Proyectadas12M`
+
+Construye variables exogenas futuras para un horizonte de 12 meses a partir del mes actual dentro de un año.
+
+### `dbo.vw_CBA_ModeloSimple_Prediccion`
+
+Entrega las filas futuras por zona para el pronostico del modelo.
+
+## Arquitectura del modelo predictivo
 
 ```mermaid
-flowchart LR
-    A["StagingFecha"] --> B["DimFecha"]
-
-    C["StagingTipoCambio"] --> D["FactTipoCambio"]
-    C --> B
-
-    E["StagingProducto"] --> F["DimProducto"]
-    G["StagingPrecioGasolina"] --> H["FactPrecioCombustible"]
-    G --> B
-    F --> H
-
-    I["StagingInec"] --> J["DimZonaCBA"]
-    I --> K["DimCategoriaCBA"]
-    I --> L["FactCanastaInecOficial"]
-    I --> B
-    J --> L
-    K --> L
-
-    M["StagingZonaClimatica"] --> N["DimZonaClimatica"]
-    O["StagingClimaMensual"] --> P["FactClimaMensual"]
-    O --> B
-    N --> P
+flowchart TB
+    A["FactCanastaInecOficial"] --> V1["vw_CBA_TargetMensual_Zona_Limpia"]
+    B["FactTipoCambio"] --> V2["vw_CBA_ExogenasMensuales_Limpias"]
+    C["FactPrecioCombustible"] --> V2
+    D["FactClimaMensual"] --> V2
+    V1 --> V3["vw_CBA_ModeloSimple_Base"]
+    V2 --> V3
+    V3 --> V4["vw_CBA_ModeloSimple_Entrenamiento"]
+    V2 --> V5["vw_CBA_ExogenasMensuales_Proyectadas12M"]
+    V5 --> V6["vw_CBA_ModeloSimple_Prediccion"]
+    V4 --> M["Modelos: lineal y random forest"]
+    V6 --> P["Predicciones 2027 por zona"]
 ```
+
+## Modulo del modelo
+
+El modulo del modelo vive en:
+
+- [MODELO_CBA.py](</C:/Users/d3smo/Desktop/CUC/Almacenes de datos/Nueva carpeta/Proyecto-AlmacenesDatos/MODELO_CBA.py>)
+- [etl/src/modelo_predictivo_cba](</C:/Users/d3smo/Desktop/CUC/Almacenes de datos/Nueva carpeta/Proyecto-AlmacenesDatos/etl/src/modelo_predictivo_cba>)
+
+### Componentes principales
+
+- `models.py`
+  - define configuracion, rutas y estructuras de resultados
+
+- `repository.py`
+  - lee las vistas del DW
+  - valida que el esquema esperado exista
+
+- `simple_model.py`
+  - implementa los dos algoritmos de ML
+  - serializa los artefactos entrenados
+
+- `service.py`
+  - coordina validacion, entrenamiento, comparacion contra `.xlsx` y prediccion
+
+- `cli.py`
+  - expone los comandos del modelo
 
 ## Estructura del repositorio
 
 ```text
 Proyecto-AlmacenesDatos/
 |-- ETL.py
+|-- MODELO_CBA.py
+|-- README.md
 |-- dw_database/
 |   |-- 01 - DW_Canasta.sql
-|   `-- 02 - DW_Canasta_AzureSQL.sql
+|   |-- 02 - DW_Canasta_AzureSQL.sql
+|   |-- vistas_modelo_predictivo_cba.sql
+|   `-- vistas_metricas_modelo_cba_limpias.sql
 |-- etl/
-|   |-- data/raw/
+|   |-- data/
+|   |   |-- raw/
+|   |   `-- processed/
 |   `-- src/
 |       |-- admin_db_conn/
 |       |-- etl_cba/
 |       |-- etl_clima/
 |       |-- etl_combustible/
 |       |-- etl_dolar/
+|       |-- modelo_predictivo_cba/
 |       |-- app.py
 |       |-- cli.py
 |       |-- dw_manager.py
 |       |-- runtime.py
-|       |-- test_runner.py
-|       `-- trazabilidad.py
+|       `-- test_runner.py
 `-- tests/
     |-- smoke/
     `-- unit/
 ```
 
-## Ejecucion
-
-### Preparacion
+## Preparacion del entorno
 
 ```powershell
 python -m venv .venv
@@ -209,57 +265,287 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### Conexion a SQL Server local
+## Scripts SQL necesarios
 
-```powershell
-python ETL.py --server .\SQLEXPRESS --trusted-connection
+### Crear el DW base
+
+Para SQL Server local:
+
+```text
+dw_database/01 - DW_Canasta.sql
 ```
 
-### Conexion con usuario y password
+Para Azure SQL:
 
-```powershell
-python ETL.py --server localhost --database DW_Dolar_Canasta --username sa --password secreto --no-trusted-connection
+```text
+dw_database/02 - DW_Canasta_AzureSQL.sql
 ```
 
-### Ejecucion historica
+### Crear las vistas del modelo
 
-```powershell
-python ETL.py --modo-carga historico
+```text
+dw_database/vistas_metricas_modelo_cba_limpias.sql
 ```
 
-### Ejecucion con combustible sintetico
+## CLI del ETL
+
+El ETL se ejecuta desde:
 
 ```powershell
-python ETL.py --sinteticos
+python ETL.py
 ```
 
-## Pruebas
+### Funcion del CLI del ETL
 
-### Suite general
+El CLI de `ETL.py` permite:
+
+- definir la conexion a SQL Server
+- escoger el modo de carga
+- regenerar historicos
+- correr pruebas
+- ampliar el rango del ETL de clima
+- generar datos sinteticos de combustible
+
+### Parametros principales del ETL
+
+- `--server`
+  - servidor o instancia SQL Server
+
+- `--database`
+  - base de datos destino
+
+- `--username` y `--password`
+  - autenticacion SQL
+
+- `--trusted-connection`
+  - autenticacion integrada de Windows
+
+- `--modo-carga`
+  - `direct-insert`
+  - `historico`
+
+- `--generar-historicos`
+  - regenera CSV operativos antes de la carga
+
+- `--clima-start-year`
+  - anio inicial de consulta para clima
+
+- `--clima-end-year`
+  - anio final de consulta para clima
+
+### Ejemplos de ejecucion del ETL
+
+Conexion local:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
+python ETL.py --server . --database DW_Dolar_Canasta --trusted-connection
 ```
 
-### Validacion de conexion y base de datos
+Carga historica completa:
 
 ```powershell
-python ETL.py --test-DBconn --only-test
+python ETL.py --server . --database DW_Dolar_Canasta --modo-carga historico
 ```
 
-### Validacion por ETL
+Carga historica con clima ampliado:
+
+```powershell
+python ETL.py --server . --database DW_Dolar_Canasta --modo-carga historico --clima-start-year 2011 --clima-end-year 2026
+```
+
+Pruebas de ETL y conexion:
 
 ```powershell
 python ETL.py --test-ETL
-python ETL.py --test-ETL dolar combustible clima --only-test
+python ETL.py --test-DBconn --only-test
 ```
 
-## Notas de despliegue
+## CLI del modelo
 
-- Para SQL Server local o de instancia completa, usa `01 - DW_Canasta.sql`.
-- Para Azure SQL Database, usa `02 - DW_Canasta_AzureSQL.sql`.
-- En Azure SQL, el endpoint debe indicarse con el servidor completo, por ejemplo `nombre-servidor.database.windows.net`.
+El modelo se ejecuta desde:
 
-## Resumen
+```powershell
+python MODELO_CBA.py <comando>
+```
 
-Este repositorio implementa un ETL modular con trazabilidad, validaciones y carga analitica sobre SQL Server. El resultado es un Data Warehouse listo para consultas sobre tipo de cambio, combustibles, CBA oficial y clima, con una estructura clara de staging, dimensiones y hechos.
+### Funcion del CLI del modelo
+
+El CLI del modelo permite:
+
+- validar que las vistas del DW esten listas
+- contrastar el CBA cargado contra los `.xlsx` oficiales
+- entrenar ambos modelos
+- validar su comportamiento historico
+- generar predicciones futuras por zona
+- ejecutar todo el flujo en un solo comando
+
+### Parametros principales del modelo
+
+- `--server`
+  - servidor o instancia SQL Server
+
+- `--database`
+  - base de datos del DW
+
+- `--ruta-modelo`
+  - prefijo base para guardar los modelos entrenados
+
+- `--ruta-predicciones`
+  - CSV de salida de predicciones
+
+- `--ruta-validacion`
+  - CSV de salida de validacion historica
+
+- `--anio-validacion`
+  - anio usado para el corte de validacion
+
+- `--precision-minima`
+  - umbral minimo de precision exigido al proceso
+
+### Comandos del modelo
+
+#### `validar-vistas`
+
+Comprueba que:
+
+- `dbo.vw_CBA_ModeloSimple_Entrenamiento`
+- `dbo.vw_CBA_ModeloSimple_Prediccion`
+
+tengan las columnas que el modulo necesita.
+
+```powershell
+python MODELO_CBA.py validar-vistas --server . --database DW_Dolar_Canasta
+```
+
+#### `comparar-fuente`
+
+Contrasta el total oficial de la CBA del DW contra el consolidado mensual de los archivos `.xlsx` del INEC.
+
+```powershell
+python MODELO_CBA.py comparar-fuente --server . --database DW_Dolar_Canasta
+```
+
+Salida principal:
+
+- `etl/data/processed/comparacion_cba_xlsx_vs_dw.csv`
+
+#### `entrenar`
+
+Entrena ambos modelos sobre la vista de entrenamiento y genera:
+
+- validacion historica
+- metricas por algoritmo
+- archivos serializados de cada modelo
+
+```powershell
+python MODELO_CBA.py entrenar --server . --database DW_Dolar_Canasta
+```
+
+Salidas principales:
+
+- `etl/data/processed/modelo_cba_simple_lineal.joblib`
+- `etl/data/processed/modelo_cba_simple_random_forest.joblib`
+- `etl/data/processed/validacion_cba_2025.csv`
+
+#### `predecir`
+
+Usa ambos modelos ya entrenados para generar predicciones futuras por zona.
+
+```powershell
+python MODELO_CBA.py predecir --server . --database DW_Dolar_Canasta
+```
+
+Salida principal:
+
+- `etl/data/processed/predicciones_cba_2027.csv`
+
+Ese CSV incluye:
+
+- `FechaMes`
+- `NombreZona`
+- `PrediccionCBA_Lineal`
+- `PrediccionCBA_RandomForest`
+
+#### `pipeline`
+
+Ejecuta el flujo completo del modelo:
+
+1. validar vistas
+2. contrastar DW vs `.xlsx`
+3. entrenar y validar ambos modelos
+4. generar predicciones futuras
+
+```powershell
+python MODELO_CBA.py pipeline --server . --database DW_Dolar_Canasta
+```
+
+## Logica de validacion del modelo
+
+El modelo se valida con un corte temporal real. Por defecto usa:
+
+- entrenamiento: anos anteriores a `2025`
+- validacion: `2025`
+
+Las metricas reportadas por algoritmo incluyen:
+
+- precision porcentual
+- rango de precision por zona
+- MAE
+- RMSE
+- R2
+- tiempo de validacion
+- tiempo de entrenamiento
+
+## Archivos de salida del modelo
+
+Los resultados del modulo se escriben en `etl/data/processed/`.
+
+Archivos principales:
+
+- `comparacion_cba_xlsx_vs_dw.csv`
+- `validacion_cba_2025.csv`
+- `modelo_cba_simple_lineal.joblib`
+- `modelo_cba_simple_random_forest.joblib`
+- `predicciones_cba_2027.csv`
+
+## Flujo recomendado de uso
+
+### 1. Crear la base de datos y el DW
+
+Ejecuta el script:
+
+```text
+dw_database/01 - DW_Canasta.sql
+```
+
+### 2. Cargar datos con los ETLs
+
+```powershell
+python ETL.py --server . --database DW_Dolar_Canasta --modo-carga historico
+```
+
+### 3. Crear las vistas del modelo
+
+Ejecuta:
+
+```text
+dw_database/vistas_metricas_modelo_cba_limpias.sql
+```
+
+### 4. Validar y ejecutar el modelo
+
+```powershell
+python MODELO_CBA.py pipeline --server . --database DW_Dolar_Canasta
+```
+
+## Resumen del proyecto
+
+Este repositorio implementa un sistema predictivo de la Canasta Basica Alimentaria apoyado en:
+
+- ETLs especializados por dominio
+- un Data Warehouse en SQL Server
+- vistas limpias para entrenamiento y prediccion
+- validacion contra la fuente oficial en `.xlsx`
+- comparacion entre regresion lineal y random forest
+
+El resultado es un flujo completo para preparar datos, validar consistencia y producir predicciones mensuales de la CBA por zona.

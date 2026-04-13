@@ -75,6 +75,7 @@ class ExtractorClimaNASA:
         configuracion: ConfiguracionExtraccionClima | None = None,
     ) -> None:
         self.configuracion = configuracion or ConfiguracionExtraccionClima()
+        self.configuracion.rango_anios()
         self.ruta_respaldo_csv = ruta_respaldo_csv or (
             Path(__file__).resolve().parents[2] / "data" / "raw" / "clima_historico.csv"
         )
@@ -94,7 +95,7 @@ class ExtractorClimaNASA:
 
     def obtener(self, guardar_csv: bool = True) -> pd.DataFrame:
         try:
-            return self.obtener_desde_api(guardar_csv=guardar_csv)
+            dataframe_api = self.obtener_desde_api(guardar_csv=False)
         except Exception as exc_api:
             respaldo = self.leer_respaldo_csv()
             if not respaldo.empty:
@@ -103,6 +104,12 @@ class ExtractorClimaNASA:
                 "No fue posible obtener datos climaticos desde NASA POWER ni desde el CSV "
                 f"de respaldo. Detalle API: {exc_api}"
             ) from exc_api
+        dataframe = self._combinar_fuentes(dataframe_api, self.leer_respaldo_csv())
+        if dataframe.empty:
+            raise RuntimeError("No hay datos climaticos utilizables luego de combinar API y respaldo CSV.")
+        if guardar_csv:
+            self.guardar_csv(dataframe)
+        return dataframe
 
     def obtener_desde_api(self, guardar_csv: bool = True) -> pd.DataFrame:
         dataframes: list[pd.DataFrame] = []
@@ -154,6 +161,37 @@ class ExtractorClimaNASA:
 
     def _dataframe_vacio(self) -> pd.DataFrame:
         return pd.DataFrame(columns=COLUMNAS_CRUDAS_CLIMA)
+
+    def _combinar_fuentes(
+        self,
+        dataframe_api: pd.DataFrame,
+        dataframe_respaldo: pd.DataFrame,
+    ) -> pd.DataFrame:
+        dataframe_api = self._filtrar_registros_utilizables(dataframe_api)
+        dataframe_respaldo = self._filtrar_registros_utilizables(dataframe_respaldo)
+        if dataframe_api.empty and dataframe_respaldo.empty:
+            return self._dataframe_vacio()
+
+        frames: list[pd.DataFrame] = []
+        if not dataframe_respaldo.empty:
+            df_respaldo = dataframe_respaldo.copy()
+            df_respaldo["_prioridad"] = 0
+            frames.append(df_respaldo)
+        if not dataframe_api.empty:
+            df_api = dataframe_api.copy()
+            df_api["_prioridad"] = 1
+            frames.append(df_api)
+
+        dataframe = pd.concat(frames, ignore_index=True)
+        dataframe = dataframe.sort_values(
+            by=["Zona", "Latitud", "Longitud", "Anio", "Mes", "_prioridad"]
+        )
+        dataframe = dataframe.drop_duplicates(
+            subset=["Zona", "Latitud", "Longitud", "Anio", "Mes"],
+            keep="last",
+        )
+        dataframe = dataframe.drop(columns=["_prioridad"])
+        return dataframe[COLUMNAS_CRUDAS_CLIMA].reset_index(drop=True)
 
     def _obtener_zona_api(self, zona: ZonaClimatica) -> pd.DataFrame:
         response = requests.get(

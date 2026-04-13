@@ -14,6 +14,7 @@ from etl_cba.transform import TransformadorCBA
 from etl_cba.validation import ValidadorCBAOficial
 from etl_clima.extract import ExtractorClimaNASA
 from etl_clima.load import CargadorClima
+from etl_clima.models import ConfiguracionExtraccionClima
 from etl_clima.transform import TransformadorClima
 from etl_combustible.combustibles import (
     clasificar_producto_combustible,
@@ -61,7 +62,19 @@ class ETLApp:
         self.validador_cba_oficial = ValidadorCBAOficial()
         self.cargador_cba = CargadorCBA(self.db)
         self.extractor_clima = ExtractorClimaNASA(
-            ruta_respaldo_csv=self.raw_data_dir / "clima_historico.csv"
+            ruta_respaldo_csv=self.raw_data_dir / "clima_historico.csv",
+            configuracion=ConfiguracionExtraccionClima(
+                start_year=(
+                    str(parametros.clima_start_year)
+                    if parametros.clima_start_year is not None
+                    else "2011"
+                ),
+                end_year=(
+                    str(parametros.clima_end_year)
+                    if parametros.clima_end_year is not None
+                    else ConfiguracionExtraccionClima().end_year
+                ),
+            ),
         )
         self.transformador_clima = TransformadorClima()
         self.cargador_clima = CargadorClima(

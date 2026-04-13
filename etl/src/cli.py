@@ -155,6 +155,22 @@ class GestorCLI:
                 "Si se combina con el resto del flujo, espera a que el ETL normal termine y luego inserta los registros sinteticos."
             ),
         )
+        self.parser.add_argument(
+            "--clima-start-year",
+            type=int,
+            help=(
+                "Anio inicial para consultar NASA POWER en el ETL de clima.\n"
+                "Si no se indica, el flujo usa 2011 para cubrir toda la historia de CBA."
+            ),
+        )
+        self.parser.add_argument(
+            "--clima-end-year",
+            type=int,
+            help=(
+                "Anio final para consultar NASA POWER en el ETL de clima.\n"
+                "Si no se indica, el flujo usa el anio actual."
+            ),
+        )
 
     def parsear(self, args: list[str] | None = None) -> ParametrosETL:
         raw_args = list(sys.argv[1:] if args is None else args)
@@ -163,6 +179,12 @@ class GestorCLI:
             self.parser.error("--test no puede combinarse con --test-ETL ni --test-DBconn")
         if ns.only_test and not (ns.test or ns.test_etl is not None or ns.test_dbconn):
             self.parser.error("--only-test requiere --test, --test-ETL o --test-DBconn")
+        if (
+            ns.clima_start_year is not None
+            and ns.clima_end_year is not None
+            and ns.clima_start_year > ns.clima_end_year
+        ):
+            self.parser.error("--clima-start-year no puede ser mayor que --clima-end-year")
         flujo_principal_indicado = any(
             argumento in raw_args
             for argumento in (
@@ -188,4 +210,6 @@ class GestorCLI:
             modo_carga_indicado="--modo-carga" in raw_args,
             sinteticos_enabled=ns.sinteticos,
             flujo_principal_indicado=flujo_principal_indicado,
+            clima_start_year=ns.clima_start_year,
+            clima_end_year=ns.clima_end_year,
         )

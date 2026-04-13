@@ -26,4 +26,12 @@ def test_modelos_clima_tienen_campos_esperados() -> None:
 
     assert registro.zona == "Matina"
     assert configuracion.base_url.endswith("/point")
+    assert int(configuracion.start_year) == 2011
+    assert int(configuracion.end_year) >= int(configuracion.start_year)
     assert FUENTE_NASA == 4
+
+
+def test_configuracion_clima_valida_rango() -> None:
+    configuracion = ConfiguracionExtraccionClima(start_year="2011", end_year="2013")
+
+    assert configuracion.rango_anios() == (2011, 2013)

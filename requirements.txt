@@ -1,5 +1,7 @@
 # Manipulacion y analisis de datos
 pandas>=2.0,<3.0
+numpy>=1.26,<3.0
+scikit-learn>=1.8,<2.0
 
 # Conectividad con SQL Server
 pyodbc>=5.0,<6.0

@@ -84,3 +84,15 @@ def test_cli_sinteticos_con_flujo_normal_no_activa_modo_solo_sintetico() -> None
     assert parametros.sinteticos_enabled
     assert parametros.debe_generar_sinteticos
     assert not parametros.debe_ejecutar_solo_sinteticos
+
+
+def test_cli_permita_configurar_rango_de_clima() -> None:
+    parametros = GestorCLI().parsear(["--clima-start-year", "2011", "--clima-end-year", "2026"])
+
+    assert parametros.clima_start_year == 2011
+    assert parametros.clima_end_year == 2026
+
+
+def test_cli_rechaza_rango_de_clima_invertido() -> None:
+    with pytest.raises(SystemExit):
+        GestorCLI().parsear(["--clima-start-year", "2026", "--clima-end-year", "2011"])

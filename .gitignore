@@ -6,3 +6,8 @@
 **/.test_tmp/
 tests/.tmp/
 **/pytest-cache-files-*/
+
+# Artefactos autogenerados del modelo y comparaciones
+etl/data/processed/*.csv
+etl/data/processed/*.joblib
+etl/data/processed/*.json

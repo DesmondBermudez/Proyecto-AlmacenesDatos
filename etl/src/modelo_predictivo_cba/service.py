@@ -108,12 +108,15 @@ class ServicioModeloCBA:
             ruta_validacion.parent.mkdir(parents=True, exist_ok=True)
             comparacion_validacion.to_csv(ruta_validacion, index=False, encoding="utf-8-sig")
 
+        comparacion_algoritmos = self._comparar_algoritmos(metricas_algoritmos)
+
         return ResumenEntrenamientoModeloCBA(
             filas_entrenamiento=len(train_df) if not test_df.empty else len(dataframe),
             filas_validacion=len(test_df),
             precision_minima_pct=self.configuracion.precision_minima_pct,
             tiempo_total_entrenamiento_segundos=tiempo_total,
             metricas_algoritmos=metricas_algoritmos,
+            comparacion_algoritmos=comparacion_algoritmos,
             rutas_modelos=rutas_modelos,
             ruta_validacion=ruta_validacion,
         )
@@ -126,27 +129,10 @@ class ServicioModeloCBA:
         self.validar_vistas()
         entrenamiento = self.repositorio.cargar_entrenamiento()
         futuro = self.repositorio.cargar_prediccion()
-        salida = futuro[
-            [
-                "FechaMes",
-                "Anio",
-                "Mes",
-                "Trimestre",
-                "ZonaCBAID",
-                "NombreZona",
-                "CantidadCategorias",
-                "TipoCambioPromedioMensual",
-                "PrecioCombustiblePromedioMensual",
-                "TempMaxProm",
-                "TempMinProm",
-                "PrecipitacionProm",
-                "HumedadProm",
-                "RadiacionSolarProm",
-                "FlagFinAnio",
-            ]
-        ].copy()
+        salida = futuro[["FechaMes", "NombreZona"]].copy()
 
         algoritmos_utilizados: list[str] = []
+        metricas_por_algoritmo: dict[str, dict[str, object]] = {}
         for algoritmo in self.configuracion.algoritmos_candidatos:
             modelo = ModeloLinealSimpleCBA.cargar(
                 self._ruta_modelo_algoritmo(
@@ -159,6 +145,23 @@ class ServicioModeloCBA:
             nombre_columna = f"PrediccionCBA_{self._nombre_columna_algoritmo(algoritmo)}"
             salida[nombre_columna] = forecast["PrediccionCBA_TotalMensual"].to_numpy(dtype=float)
             algoritmos_utilizados.append(algoritmo)
+            for item in modelo.metricas_algoritmos:
+                nombre_algoritmo = str(item.get("algoritmo", "")).strip().lower()
+                if nombre_algoritmo:
+                    metricas_por_algoritmo[nombre_algoritmo] = dict(item)
+
+        metricas_algoritmos = [
+            metricas_por_algoritmo[algoritmo]
+            for algoritmo in self.configuracion.algoritmos_candidatos
+            if algoritmo in metricas_por_algoritmo
+        ]
+
+        comparacion_algoritmos = self._comparar_algoritmos(metricas_algoritmos)
+        salida = self._agregar_metricas_a_predicciones(
+            salida,
+            metricas_algoritmos=metricas_algoritmos,
+            comparacion_algoritmos=comparacion_algoritmos,
+        )
 
         ruta_destino = ruta_predicciones or self.configuracion.ruta_predicciones
         ruta_destino.parent.mkdir(parents=True, exist_ok=True)
@@ -169,6 +172,8 @@ class ServicioModeloCBA:
             algoritmos_utilizados=algoritmos_utilizados,
             fecha_inicio_prediccion=str(pd.to_datetime(salida["FechaMes"]).min().date()),
             fecha_fin_prediccion=str(pd.to_datetime(salida["FechaMes"]).max().date()),
+            metricas_algoritmos=metricas_algoritmos,
+            comparacion_algoritmos=comparacion_algoritmos,
         )
 
     def comparar_cba_con_fuente_xlsx(self, ruta_salida: Path | None = None) -> Path:
@@ -242,6 +247,30 @@ class ServicioModeloCBA:
         ruta_destino = ruta_salida or Path("etl") / "data" / "processed" / "comparacion_cba_xlsx_vs_dw.csv"
         ruta_destino.parent.mkdir(parents=True, exist_ok=True)
         comparacion.to_csv(ruta_destino, index=False, encoding="utf-8-sig")
+        return ruta_destino
+
+    def generar_matriz_correlacion_exogenas(self, ruta_salida: Path | None = None) -> Path:
+        self.validar_vistas()
+        dataframe = self.repositorio.cargar_entrenamiento()
+        columnas = (
+            self.configuracion.columna_objetivo,
+            *self.configuracion.columnas_exogenas_correlacion,
+        )
+        faltantes = [columna for columna in columnas if columna not in dataframe.columns]
+        if faltantes:
+            raise ValueError(
+                "No fue posible calcular la matriz de correlacion. "
+                f"Faltan columnas en la vista de entrenamiento: {', '.join(faltantes)}"
+            )
+
+        matriz = dataframe.loc[:, columnas].apply(pd.to_numeric, errors="coerce").corr(method="pearson")
+        if matriz.empty:
+            raise ValueError("No fue posible calcular la matriz de correlacion con el dataset actual.")
+
+        matriz.index.name = "Variable"
+        ruta_destino = ruta_salida or self.configuracion.ruta_correlacion
+        ruta_destino.parent.mkdir(parents=True, exist_ok=True)
+        matriz.to_csv(ruta_destino, encoding="utf-8-sig")
         return ruta_destino
 
     def validar_vistas(self) -> ResultadoValidacionVistasCBA:
@@ -344,6 +373,7 @@ class ServicioModeloCBA:
         real = pd.to_numeric(validacion_algoritmo[self.configuracion.columna_objetivo], errors="raise").to_numpy(dtype=float)
         pred = pd.to_numeric(validacion_algoritmo[f"PrediccionCBA_{nombre_algoritmo}"], errors="raise").to_numpy(dtype=float)
         precision_zona = validacion_algoritmo.groupby("ZonaCBAID")[f"PrecisionFilaPct_{nombre_algoritmo}"].mean()
+        errores = real - pred
         return {
             "algoritmo": algoritmo,
             "precision_pct": self._precision_desde_arrays(real, pred),
@@ -352,6 +382,10 @@ class ServicioModeloCBA:
             "mae": float(mean_absolute_error(real, pred)),
             "rmse": float(np.sqrt(mean_squared_error(real, pred))),
             "r2": float(r2_score(real, pred)),
+            "pred_varianza": float(np.var(pred)),
+            "pred_desviacion_std": float(np.std(pred)),
+            "error_varianza": float(np.var(errores)),
+            "error_desviacion_std": float(np.std(errores)),
         }
 
     def _generar_forecast_recursivo(
@@ -435,3 +469,110 @@ class ServicioModeloCBA:
     def _nombre_columna_algoritmo(algoritmo: str) -> str:
         partes = algoritmo.strip().lower().split("_")
         return "".join(parte.capitalize() for parte in partes)
+
+    @staticmethod
+    def _comparar_algoritmos(metricas_algoritmos: list[dict[str, object]]) -> dict[str, object] | None:
+        if not metricas_algoritmos:
+            return None
+
+        metricas_por_algoritmo = {
+            str(item["algoritmo"]): item
+            for item in metricas_algoritmos
+            if item.get("algoritmo") is not None
+        }
+        random_forest = metricas_por_algoritmo.get("random_forest")
+        lineal = metricas_por_algoritmo.get("lineal")
+        if random_forest is None or lineal is None:
+            return None
+
+        precision_rf = random_forest.get("precision_pct")
+        precision_lineal = lineal.get("precision_pct")
+        if precision_rf is None or precision_lineal is None:
+            return {
+                "algoritmo_principal": "random_forest",
+                "algoritmo_referencia": "lineal",
+                "algoritmo_ganador": None,
+                "diferencia_precision_pct": None,
+            }
+
+        precision_rf_float = float(precision_rf)
+        precision_lineal_float = float(precision_lineal)
+        if precision_rf_float > precision_lineal_float:
+            algoritmo_ganador = "random_forest"
+        elif precision_rf_float < precision_lineal_float:
+            algoritmo_ganador = "lineal"
+        else:
+            algoritmo_ganador = "empate"
+
+        return {
+            "algoritmo_principal": "random_forest",
+            "algoritmo_referencia": "lineal",
+            "precision_random_forest_pct": precision_rf_float,
+            "precision_lineal_pct": precision_lineal_float,
+            "diferencia_precision_pct": abs(precision_rf_float - precision_lineal_float),
+            "algoritmo_ganador": algoritmo_ganador,
+        }
+
+    @staticmethod
+    def _agregar_metricas_a_predicciones(
+        dataframe: pd.DataFrame,
+        metricas_algoritmos: list[dict[str, object]],
+        comparacion_algoritmos: dict[str, object] | None,
+    ) -> pd.DataFrame:
+        salida = dataframe.copy()
+        metricas_por_algoritmo = {
+            str(item["algoritmo"]): item
+            for item in metricas_algoritmos
+            if item.get("algoritmo") is not None
+        }
+        columnas_metricas = (
+            ("precision_pct", "Precision"),
+            ("mae", "MAE"),
+            ("rmse", "RMSE"),
+            ("r2", "R2"),
+            ("pred_varianza", "VarianzaPred"),
+            ("pred_desviacion_std", "DesviacionStdPred"),
+            ("error_varianza", "VarianzaError"),
+            ("error_desviacion_std", "DesviacionStdError"),
+        )
+
+        for algoritmo, sufijo in (("random_forest", "RandomForest"), ("lineal", "Lineal")):
+            metricas = metricas_por_algoritmo.get(algoritmo, {})
+            for llave, prefijo in columnas_metricas:
+                salida[f"{prefijo}_{sufijo}"] = metricas.get(llave)
+
+        if comparacion_algoritmos:
+            salida["DiferenciaPrecision_RF_vs_Lineal_Pct"] = comparacion_algoritmos.get(
+                "diferencia_precision_pct"
+            )
+            salida["AlgoritmoGanador"] = comparacion_algoritmos.get("algoritmo_ganador")
+
+        columnas_finales = [
+            columna
+            for columna in (
+                "FechaMes",
+                "NombreZona",
+                "PrediccionCBA_RandomForest",
+                "PrediccionCBA_Lineal",
+                "Precision_RandomForest",
+                "MAE_RandomForest",
+                "RMSE_RandomForest",
+                "R2_RandomForest",
+                "VarianzaPred_RandomForest",
+                "DesviacionStdPred_RandomForest",
+                "VarianzaError_RandomForest",
+                "DesviacionStdError_RandomForest",
+                "Precision_Lineal",
+                "MAE_Lineal",
+                "RMSE_Lineal",
+                "R2_Lineal",
+                "VarianzaPred_Lineal",
+                "DesviacionStdPred_Lineal",
+                "VarianzaError_Lineal",
+                "DesviacionStdError_Lineal",
+                "DiferenciaPrecision_RF_vs_Lineal_Pct",
+                "AlgoritmoGanador",
+            )
+            if columna in salida.columns
+        ]
+        return salida[columnas_finales]

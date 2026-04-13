@@ -13,10 +13,14 @@ from etl_combustible.models import (
 class FakeCursor:
     def __init__(self) -> None:
         self.execute_calls: list[tuple[str, tuple | None]] = []
+        self.executemany_calls: list[tuple[str, list[tuple]]] = []
         self.fast_executemany = False
 
     def execute(self, sql: str, params: tuple | None = None) -> None:
         self.execute_calls.append((sql, params))
+
+    def executemany(self, sql: str, params: list[tuple]) -> None:
+        self.executemany_calls.append((sql, list(params)))
 
 
 class FakeConnection:
@@ -63,19 +67,13 @@ def test_cargar_combustibles_limpia_staging_y_respeta_fuente_id() -> None:
     )
 
     sql_texts = [sql for sql, _ in fake_db.connection_instance.cursor_instance.execute_calls]
-    insert_params = [
-        params
-        for sql, params in fake_db.connection_instance.cursor_instance.execute_calls
-        if "INSERT INTO dbo.StagingPrecioGasolina" in sql
-    ]
-    fecha_calls = [
-        params
-        for sql, params in fake_db.connection_instance.cursor_instance.execute_calls
-        if "INSERT INTO dbo.StagingFecha" in sql
-    ]
+    bulk_calls = fake_db.connection_instance.cursor_instance.executemany_calls
 
     assert any("DELETE FROM dbo.StagingPrecioGasolina" in sql for sql in sql_texts)
     assert any("DELETE FROM dbo.StagingProducto" in sql for sql in sql_texts)
-    assert len(fecha_calls) == 1
-    assert fecha_calls[0][2] == "2026-04-11"
-    assert insert_params[0][-1] == FUENTE_RESPALDO
+    assert len(bulk_calls) == 3
+    assert "INSERT INTO dbo.StagingProducto" in bulk_calls[0][0]
+    assert "INSERT INTO dbo.StagingFecha" in bulk_calls[1][0]
+    assert bulk_calls[1][1][0][2] == "2026-04-11"
+    assert "INSERT INTO dbo.StagingPrecioGasolina" in bulk_calls[2][0]
+    assert bulk_calls[2][1][0][-1] == FUENTE_RESPALDO

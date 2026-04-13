@@ -88,9 +88,10 @@ def test_cargador_clima_puebla_staging_de_zonas_y_clima() -> None:
     cargador.cargar_staging(df)
 
     sql_texts = [sql for sql, _ in fake_db.connection_instance.cursor_instance.execute_calls]
-    lote = fake_db.connection_instance.cursor_instance.executemany_calls[0][1]
+    bulk_calls = fake_db.connection_instance.cursor_instance.executemany_calls
+    lote = bulk_calls[-1][1]
 
     assert any("DELETE FROM dbo.StagingClimaMensual" in sql for sql in sql_texts)
-    assert any("INSERT INTO dbo.StagingZonaClimatica" in sql for sql in sql_texts)
-    assert any("INSERT INTO dbo.StagingFecha" in sql for sql in sql_texts)
+    assert any("INSERT INTO dbo.StagingZonaClimatica" in sql for sql, _ in bulk_calls)
+    assert any("INSERT INTO dbo.StagingFecha" in sql for sql, _ in bulk_calls)
     assert lote[0][-1] == FUENTE_NASA

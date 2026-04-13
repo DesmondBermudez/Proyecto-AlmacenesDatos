@@ -62,6 +62,7 @@ def _resolver_con_fallback(
 class ExtractorTipoCambio:
     URL_DIARIA = "https://api.hacienda.go.cr/indicadores/tc/dolar"
     URL_HISTORICA = "https://api.hacienda.go.cr/indicadores/tc/dolar/historico"
+    TIMEOUT_SEGUNDOS = 30
 
     def __init__(self, ruta_respaldo_csv: Path) -> None:
         self.ruta_respaldo_csv = ruta_respaldo_csv
@@ -117,7 +118,7 @@ class ExtractorTipoCambio:
         return [self._clonar_registro(registro, resultado.fuente_id) for registro in resultado.datos]
 
     def _obtener_diario_api(self) -> RegistroTipoCambio:
-        response = requests.get(self.URL_DIARIA, timeout=30)
+        response = requests.get(self.URL_DIARIA, timeout=self.TIMEOUT_SEGUNDOS)
         response.raise_for_status()
         data = response.json()
         fecha = datetime.fromisoformat(data["venta"]["fecha"].replace("Z", "+00:00")).date()
@@ -156,7 +157,7 @@ class ExtractorTipoCambio:
         response = requests.get(
             self.URL_HISTORICA,
             params={"d": inicio.strftime("%Y-%m-%d"), "h": fin.strftime("%Y-%m-%d")},
-            timeout=30,
+            timeout=self.TIMEOUT_SEGUNDOS,
         )
         response.raise_for_status()
         payload = response.json()

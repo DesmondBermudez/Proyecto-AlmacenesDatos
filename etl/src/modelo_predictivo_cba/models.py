@@ -42,7 +42,7 @@ class ConfiguracionModeloCBA:
         "FlagFinAnio",
     )
     columnas_lags: tuple[str, ...] = ("lag_1", "lag_3")
-    algoritmos_candidatos: tuple[str, ...] = ("lineal", "random_forest")
+    algoritmos_candidatos: tuple[str, ...] = ("random_forest", "lineal")
     algoritmo_por_defecto: str = "random_forest"
     horizonte_prediccion_meses: int = 12
     anio_validacion_preferido: int = 2025
@@ -54,6 +54,9 @@ class ConfiguracionModeloCBA:
     ruta_validacion: Path = field(
         default_factory=lambda: Path("etl") / "data" / "processed" / "validacion_cba_2025.csv"
     )
+    ruta_correlacion: Path = field(
+        default_factory=lambda: Path("etl") / "data" / "processed" / "correlacion_cba_vs_exogenas.csv"
+    )
 
     @property
     def columnas_features_modelo(self) -> tuple[str, ...]:
@@ -62,6 +65,18 @@ class ConfiguracionModeloCBA:
     @property
     def columnas_features_prediccion(self) -> tuple[str, ...]:
         return self.columnas_categoricas + self.columnas_numericas_prediccion_base + self.columnas_lags
+
+    @property
+    def columnas_exogenas_correlacion(self) -> tuple[str, ...]:
+        return (
+            "TipoCambioPromedioMensual",
+            "PrecioCombustiblePromedioMensual",
+            "TempMaxProm",
+            "TempMinProm",
+            "PrecipitacionProm",
+            "HumedadProm",
+            "RadiacionSolarProm",
+        )
 
     @property
     def columnas_requeridas_entrenamiento(self) -> tuple[str, ...]:
@@ -103,6 +118,7 @@ class ResumenEntrenamientoModeloCBA:
     precision_minima_pct: float
     tiempo_total_entrenamiento_segundos: float
     metricas_algoritmos: list[dict[str, object]]
+    comparacion_algoritmos: dict[str, object] | None
     rutas_modelos: dict[str, Path]
     ruta_validacion: Path | None
 
@@ -114,6 +130,8 @@ class ResultadoPrediccionModeloCBA:
     algoritmos_utilizados: list[str]
     fecha_inicio_prediccion: str
     fecha_fin_prediccion: str
+    metricas_algoritmos: list[dict[str, object]] = field(default_factory=list)
+    comparacion_algoritmos: dict[str, object] | None = None
 
 
 @dataclass(slots=True)

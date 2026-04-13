@@ -35,40 +35,40 @@ class CargadorCBA:
             conn.commit()
 
             fechas = df[["Fecha", "FechaID"]].drop_duplicates().sort_values(by="Fecha")
-            for _, row in fechas.iterrows():
-                fecha = pd.Timestamp(row["Fecha"]).to_pydatetime()
-                cursor.execute(
-                    """
-                    IF NOT EXISTS (
-                        SELECT 1 FROM dbo.StagingFecha WHERE FechaID = ?
+            cursor.fast_executemany = True
+            cursor.executemany(
+                """
+                IF NOT EXISTS (SELECT 1 FROM dbo.StagingFecha WHERE FechaID = ?)
+                BEGIN
+                    INSERT INTO dbo.StagingFecha (
+                        FechaID,
+                        Fecha,
+                        Dia,
+                        Mes,
+                        NombreMes,
+                        Anio,
+                        Trimestre
                     )
-                    BEGIN
-                        INSERT INTO dbo.StagingFecha (
-                            FechaID,
-                            Fecha,
-                            Dia,
-                            Mes,
-                            NombreMes,
-                            Anio,
-                            Trimestre
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    END
-                    """,
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                END
+                """,
+                [
                     (
-                        int(row["FechaID"]),
-                        int(row["FechaID"]),
+                        int(fecha_id),
+                        int(fecha_id),
                         fecha.strftime("%Y-%m-%d"),
                         fecha.day,
                         fecha.month,
                         fecha.strftime("%B"),
                         fecha.year,
                         ((fecha.month - 1) // 3) + 1,
-                    ),
-                )
+                    )
+                    for fecha_str, fecha_id in fechas.itertuples(index=False, name=None)
+                    for fecha in [pd.Timestamp(fecha_str).to_pydatetime()]
+                ],
+            )
             conn.commit()
 
-            cursor.fast_executemany = True
             lote = [
                 (
                     fila["Fecha"],
@@ -80,7 +80,7 @@ class CargadorCBA:
                     fila["ArchivoOrigen"],
                     int(fila["FuenteID"]),
                 )
-                for _, fila in df.iterrows()
+                for fila in df.to_dict(orient="records")
             ]
             cursor.executemany(
                 """

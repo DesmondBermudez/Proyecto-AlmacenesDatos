@@ -54,6 +54,7 @@ ZONAS_BANANO_REFERENCIA = (
 
 
 class ExtractorClimaNASA:
+    TIMEOUT_SEGUNDOS = 60
     MESES_NASA = {
         "JAN": 1,
         "FEB": 2,
@@ -202,7 +203,7 @@ class ExtractorClimaNASA:
                 "latitude": zona.latitud,
             },
             headers={"Accept": "text/csv"},
-            timeout=60,
+            timeout=self.TIMEOUT_SEGUNDOS,
         )
         response.raise_for_status()
         dataframe = self._parsear_respuesta_csv(response.text, zona)

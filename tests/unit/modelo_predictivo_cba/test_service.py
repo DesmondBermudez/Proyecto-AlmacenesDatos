@@ -79,39 +79,24 @@ def test_servicio_modelo_cba_entrena_y_genera_predicciones(local_tmp_path) -> No
     futuro = pd.DataFrame(
         [
             {
-                "FechaMes": pd.Timestamp("2027-04-01"),
-                "Anio": 2027,
-                "Mes": 4,
-                "Trimestre": 2,
-                "ZonaCBAID": 1,
-                "NombreZona": "RURAL",
+                "FechaMes": fecha,
+                "Anio": fecha.year,
+                "Mes": fecha.month,
+                "Trimestre": ((fecha.month - 1) // 3) + 1,
+                "ZonaCBAID": zona_id,
+                "NombreZona": zona,
                 "CantidadCategorias": 15,
-                "TipoCambioPromedioMensual": 560.0,
-                "PrecioCombustiblePromedioMensual": 740.0,
+                "TipoCambioPromedioMensual": 560.0 + indice_mes,
+                "PrecioCombustiblePromedioMensual": 740.0 + indice_mes,
                 "TempMaxProm": 31.5,
                 "TempMinProm": 23.5,
                 "PrecipitacionProm": 8.5,
                 "HumedadProm": 81.5,
                 "RadiacionSolarProm": 6.5,
-                "FlagFinAnio": 0,
-            },
-            {
-                "FechaMes": pd.Timestamp("2027-04-01"),
-                "Anio": 2027,
-                "Mes": 4,
-                "Trimestre": 2,
-                "ZonaCBAID": 2,
-                "NombreZona": "URBANA",
-                "CantidadCategorias": 15,
-                "TipoCambioPromedioMensual": 560.0,
-                "PrecioCombustiblePromedioMensual": 740.0,
-                "TempMaxProm": 31.5,
-                "TempMinProm": 23.5,
-                "PrecipitacionProm": 8.5,
-                "HumedadProm": 81.5,
-                "RadiacionSolarProm": 6.5,
-                "FlagFinAnio": 0,
-            },
+                "FlagFinAnio": 1 if fecha.month == 12 else 0,
+            }
+            for indice_mes, fecha in enumerate(pd.date_range("2026-05-01", periods=12, freq="MS"), start=1)
+            for zona_id, zona in ((1, "RURAL"), (2, "URBANA"))
         ]
     )
     servicio.repositorio = RepositorioStub(
@@ -129,14 +114,25 @@ def test_servicio_modelo_cba_entrena_y_genera_predicciones(local_tmp_path) -> No
     assert resumen.ruta_validacion is not None
     assert resumen.ruta_validacion.exists()
     assert resumen.metricas_algoritmos
+    assert resumen.comparacion_algoritmos is not None
+    assert resumen.comparacion_algoritmos["algoritmo_principal"] == "random_forest"
+    assert all("pred_varianza" in item for item in resumen.metricas_algoritmos)
+    assert all("error_desviacion_std" in item for item in resumen.metricas_algoritmos)
     assert {item["algoritmo"] for item in resumen.metricas_algoritmos} == set(configuracion.algoritmos_candidatos)
     assert resultado.ruta_predicciones.exists()
     assert resultado.filas_generadas == len(futuro)
     assert set(resultado.algoritmos_utilizados) == set(configuracion.algoritmos_candidatos)
-    assert resultado.fecha_inicio_prediccion == "2027-04-01"
+    assert resultado.fecha_inicio_prediccion == "2026-05-01"
+    assert resultado.fecha_fin_prediccion == "2027-04-01"
+    assert resultado.comparacion_algoritmos is not None
     salida = pd.read_csv(resultado.ruta_predicciones, encoding="utf-8-sig")
+    assert "NombreZona" in salida.columns
     assert "PrediccionCBA_Lineal" in salida.columns
     assert "PrediccionCBA_RandomForest" in salida.columns
+    assert "Precision_RandomForest" in salida.columns
+    assert "VarianzaError_Lineal" in salida.columns
+    assert "TipoCambioPromedioMensual" not in salida.columns
+    assert len(salida) == 24
 
 
 def test_servicio_valida_vistas_emparejadas_con_el_modelo() -> None:
@@ -161,6 +157,29 @@ def test_servicio_valida_vistas_emparejadas_con_el_modelo() -> None:
     assert "CBA_TotalMensual" not in resultado.columnas_prediccion
 
 
+def test_servicio_genera_matriz_correlacion_exogenas(local_tmp_path) -> None:
+    configuracion = ConfiguracionModeloCBA(
+        ruta_correlacion=local_tmp_path / "correlacion_cba_vs_exogenas.csv",
+    )
+    servicio = ServicioModeloCBA.__new__(ServicioModeloCBA)
+    servicio.configuracion = configuracion
+    servicio.repositorio = RepositorioStub(
+        dataframe_entrenamiento=_df_base(),
+        dataframe_prediccion=pd.DataFrame(),
+        configuracion=configuracion,
+    )
+
+    ruta = servicio.generar_matriz_correlacion_exogenas()
+
+    assert ruta.exists()
+    correlacion = pd.read_csv(ruta, encoding="utf-8-sig")
+    assert "Variable" in correlacion.columns
+    assert "CBA_TotalMensual" in correlacion.columns
+    assert "TipoCambioPromedioMensual" in correlacion.columns
+    assert "RadiacionSolarProm" in correlacion.columns
+    assert "lag_1" not in correlacion.columns
+
+
 def test_servicio_pipeline_orquesta_validacion_entrenamiento_y_prediccion(local_tmp_path) -> None:
     configuracion = ConfiguracionModeloCBA(
         ruta_modelo=local_tmp_path / "modelo.joblib",
@@ -174,9 +193,9 @@ def test_servicio_pipeline_orquesta_validacion_entrenamiento_y_prediccion(local_
     futuro = pd.DataFrame(
         [
             {
-                "FechaMes": pd.Timestamp("2027-04-01"),
-                "Anio": 2027,
-                "Mes": 4,
+                "FechaMes": pd.Timestamp("2026-05-01"),
+                "Anio": 2026,
+                "Mes": 5,
                 "Trimestre": 2,
                 "ZonaCBAID": 1,
                 "NombreZona": "RURAL",
@@ -206,3 +225,4 @@ def test_servicio_pipeline_orquesta_validacion_entrenamiento_y_prediccion(local_
     assert resultado.entrenamiento.ruta_validacion is not None
     assert resultado.entrenamiento.ruta_validacion.exists()
     assert resultado.prediccion.ruta_predicciones.exists()
+    assert resultado.entrenamiento.comparacion_algoritmos is not None

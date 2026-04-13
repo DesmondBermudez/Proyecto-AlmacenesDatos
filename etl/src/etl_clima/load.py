@@ -62,71 +62,75 @@ class CargadorClima:
             conn.commit()
 
             zonas = df[["zona", "latitud", "longitud"]].drop_duplicates()
-            for _, row in zonas.iterrows():
-                cursor.execute(
-                    """
-                    IF NOT EXISTS (
-                        SELECT 1
-                        FROM dbo.StagingZonaClimatica
-                        WHERE NombreZona = ? AND Latitud = ? AND Longitud = ? AND FuenteID = ?
-                    )
-                    BEGIN
-                        INSERT INTO dbo.StagingZonaClimatica (
-                            NombreZona,
-                            Latitud,
-                            Longitud,
-                            FuenteID
-                        )
-                        VALUES (?, ?, ?, ?)
-                    END
-                    """,
-                    (
-                        row["zona"],
-                        float(row["latitud"]),
-                        float(row["longitud"]),
-                        FUENTE_NASA,
-                        row["zona"],
-                        float(row["latitud"]),
-                        float(row["longitud"]),
-                        FUENTE_NASA,
-                    ),
+            cursor.fast_executemany = True
+            cursor.executemany(
+                """
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.StagingZonaClimatica
+                    WHERE NombreZona = ? AND Latitud = ? AND Longitud = ? AND FuenteID = ?
                 )
+                BEGIN
+                    INSERT INTO dbo.StagingZonaClimatica (
+                        NombreZona,
+                        Latitud,
+                        Longitud,
+                        FuenteID
+                    )
+                    VALUES (?, ?, ?, ?)
+                END
+                """,
+                [
+                    (
+                        zona,
+                        float(latitud),
+                        float(longitud),
+                        FUENTE_NASA,
+                        zona,
+                        float(latitud),
+                        float(longitud),
+                        FUENTE_NASA,
+                    )
+                    for zona, latitud, longitud in zonas.itertuples(index=False, name=None)
+                ],
+            )
 
             fechas = df[["Fecha", "FechaID"]].drop_duplicates().sort_values(by="Fecha")
-            for _, row in fechas.iterrows():
-                fecha = pd.Timestamp(row["Fecha"]).to_pydatetime()
-                cursor.execute(
-                    """
-                    IF NOT EXISTS (
-                        SELECT 1 FROM dbo.StagingFecha WHERE FechaID = ?
+            cursor.executemany(
+                """
+                IF NOT EXISTS (
+                    SELECT 1 FROM dbo.StagingFecha WHERE FechaID = ?
+                )
+                BEGIN
+                    INSERT INTO dbo.StagingFecha (
+                        FechaID,
+                        Fecha,
+                        Dia,
+                        Mes,
+                        NombreMes,
+                        Anio,
+                        Trimestre
                     )
-                    BEGIN
-                        INSERT INTO dbo.StagingFecha (
-                            FechaID,
-                            Fecha,
-                            Dia,
-                            Mes,
-                            NombreMes,
-                            Anio,
-                            Trimestre
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    END
-                    """,
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                END
+                """,
+                [
                     (
-                        int(row["FechaID"]),
-                        int(row["FechaID"]),
+                        int(fecha_id),
+                        int(fecha_id),
                         fecha.strftime("%Y-%m-%d"),
                         fecha.day,
                         fecha.month,
                         fecha.strftime("%B"),
                         fecha.year,
                         ((fecha.month - 1) // 3) + 1,
-                    ),
-                )
+                    )
+                    for fecha, fecha_id in fechas.itertuples(index=False, name=None)
+                    for fecha in [pd.Timestamp(fecha).to_pydatetime()]
+                ],
+            )
             conn.commit()
 
-            cursor.fast_executemany = True
             lote = [
                 (
                     fila["Fecha"].strftime("%Y-%m-%d"),
@@ -141,7 +145,7 @@ class CargadorClima:
                     None if pd.isna(fila["radiacion_solar"]) else float(fila["radiacion_solar"]),
                     FUENTE_NASA,
                 )
-                for _, fila in df.iterrows()
+                for fila in df.to_dict(orient="records")
             ]
             cursor.executemany(
                 """

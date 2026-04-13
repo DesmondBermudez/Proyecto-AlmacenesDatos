@@ -75,9 +75,9 @@ def test_cargar_staging_cba_deduplica_e_inserta_staging_fecha_y_staging_inec() -
     bulk = fake_db.connection_instance.cursor_instance.executemany_calls
 
     assert any(sql.strip() == "DELETE FROM dbo.StagingInec" for sql, _ in execs)
-    fecha_calls = [params for sql, params in execs if "INSERT INTO dbo.StagingFecha" in sql]
-    assert len(fecha_calls) == 1
-    assert fecha_calls[0][0] == 20260401
-    assert len(bulk) == 1
-    assert "INSERT INTO dbo.StagingInec" in bulk[0][0]
-    assert len(bulk[0][1]) == 1
+    fecha_bulk = [params for sql, params in bulk if "INSERT INTO dbo.StagingFecha" in sql]
+    staging_bulk = [params for sql, params in bulk if "INSERT INTO dbo.StagingInec" in sql]
+    assert len(fecha_bulk) == 1
+    assert fecha_bulk[0][0][0] == 20260401
+    assert len(staging_bulk) == 1
+    assert len(staging_bulk[0]) == 1

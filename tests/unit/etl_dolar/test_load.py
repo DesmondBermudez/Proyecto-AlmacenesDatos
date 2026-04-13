@@ -10,9 +10,14 @@ from etl_dolar.models import RegistroTipoCambio
 class FakeCursor:
     def __init__(self) -> None:
         self.execute_calls: list[tuple[str, tuple | None]] = []
+        self.executemany_calls: list[tuple[str, list[tuple]]] = []
+        self.fast_executemany = False
 
     def execute(self, sql: str, params: tuple | None = None) -> None:
         self.execute_calls.append((sql, params))
+
+    def executemany(self, sql: str, params: list[tuple]) -> None:
+        self.executemany_calls.append((sql, list(params)))
 
 
 class FakeConnection:
@@ -36,7 +41,7 @@ class FakeDB:
         yield self.connection_instance
 
 
-def test_cargar_staging_dolar_ejecuta_procedimiento_por_registro() -> None:
+def test_cargar_staging_dolar_inserta_fechas_y_registros_en_lotes() -> None:
     fake_db = FakeDB()
     cargador = CargadorDolar(fake_db)
 
@@ -47,8 +52,9 @@ def test_cargar_staging_dolar_ejecuta_procedimiento_por_registro() -> None:
         ]
     )
 
-    calls = fake_db.connection_instance.cursor_instance.execute_calls
-    assert len(calls) == 2
-    assert all("sp_InsertarTipoCambioStaging" in sql for sql, _ in calls)
-    assert calls[0][1] == ("2026-04-11", 500.0, 505.0, 1, 2, 1)
-    assert calls[1][1] == ("2026-04-12", 501.0, 506.0, 1, 2, 1)
+    bulk_calls = fake_db.connection_instance.cursor_instance.executemany_calls
+    assert len(bulk_calls) == 2
+    assert "INSERT INTO dbo.StagingFecha" in bulk_calls[0][0]
+    assert "INSERT INTO dbo.StagingTipoCambio" in bulk_calls[1][0]
+    assert bulk_calls[1][1][0] == ("2026-04-11", 20260411, 1, 2, 1, 500.0, 505.0, 502.5)
+    assert bulk_calls[1][1][1] == ("2026-04-12", 20260412, 1, 2, 1, 501.0, 506.0, 503.5)

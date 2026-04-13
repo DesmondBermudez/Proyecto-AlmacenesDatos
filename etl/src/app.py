@@ -84,6 +84,7 @@ class ETLApp:
         self._inicio_flujo = 0.0
         self._validadores: dict[str, ValidadorTrazabilidad] = {}
         self._estadisticas: dict[str, dict[str, int]] = {}
+        self._tiempos_subetapa: dict[str, float] = {}
 
     def ejecutar(self) -> int:
         print("=" * 50)
@@ -97,44 +98,72 @@ class ETLApp:
                 print("Modo sintetico dedicado")
                 self._ejecutar_etapa(
                     "Asegurar catalogos base",
-                    self.coordinador_dw.asegurar_catalogos_base,
+                    lambda: self._ejecutar_subetapa(
+                        "dw",
+                        "catalogos_base",
+                        self.coordinador_dw.asegurar_catalogos_base,
+                    ),
                 )
-                self._ejecutar_carga_sintetica_combustible()
+                self._ejecutar_subetapa(
+                    "combustible_sintetico",
+                    "carga",
+                    self._ejecutar_carga_sintetica_combustible,
+                )
                 print("Proceso sintetico finalizado exitosamente")
                 self._imprimir_resumen_dominios()
+                self._imprimir_resumen_rendimiento()
                 print(
                     f"[ETL] Tiempo total del flujo real: "
                     f"{formatear_duracion(time.perf_counter() - self._inicio_flujo)}"
                 )
                 return 0
 
-            self._ejecutar_etapa("Limpieza de staging", self.coordinador_dw.limpiar_staging)
+            self._ejecutar_etapa(
+                "Limpieza de staging",
+                lambda: self._ejecutar_subetapa("dw", "limpieza_staging", self.coordinador_dw.limpiar_staging),
+            )
 
             if self.parametros.es_historico:
                 print("Modo historico")
                 registros_tc = self._ejecutar_etapa(
                     "Extraccion dolar historico",
-                    lambda: self.extractor_tipo_cambio.obtener_historico(
-                        guardar_csv=guardar_historicos,
-                        sobrescribir_csv=True,
+                    lambda: self._ejecutar_subetapa(
+                        "dolar",
+                        "extraccion",
+                        lambda: self.extractor_tipo_cambio.obtener_historico(
+                            guardar_csv=guardar_historicos,
+                            sobrescribir_csv=True,
+                        ),
                     ),
                 )
             else:
                 print("Modo direct-insert")
                 registros_tc = self._ejecutar_etapa(
                     "Extraccion dolar diario",
-                    lambda: [
-                        self.extractor_tipo_cambio.obtener_diario(
-                            guardar_csv=guardar_historicos,
-                            sobrescribir_csv=False,
-                        )
-                    ],
+                    lambda: self._ejecutar_subetapa(
+                        "dolar",
+                        "extraccion",
+                        lambda: [
+                            self.extractor_tipo_cambio.obtener_diario(
+                                guardar_csv=guardar_historicos,
+                                sobrescribir_csv=False,
+                            )
+                        ],
+                    ),
                 )
 
-            self._trazar_tipo_cambio(registros_tc, registrar_csv=guardar_historicos)
+            self._ejecutar_subetapa(
+                "dolar",
+                "trazabilidad",
+                lambda: self._trazar_tipo_cambio(registros_tc, registrar_csv=guardar_historicos),
+            )
             self._ejecutar_etapa(
                 "Carga staging dolar",
-                lambda: self.cargador_dolar.cargar_staging(registros_tc),
+                lambda: self._ejecutar_subetapa(
+                    "dolar",
+                    "carga_staging",
+                    lambda: self.cargador_dolar.cargar_staging(registros_tc),
+                ),
             )
             perfil_tc_staging = self._validadores["dolar"].registrar_sql(
                 "staging",
@@ -151,20 +180,40 @@ class ETLApp:
 
             registros_combustible = self._ejecutar_etapa(
                 "Extraccion combustibles",
-                lambda: self.extractor_combustible.obtener(
-                    guardar_csv=guardar_historicos,
-                    sobrescribir_csv=self.parametros.es_historico,
+                lambda: self._ejecutar_subetapa(
+                    "combustible",
+                    "extraccion",
+                    lambda: self.extractor_combustible.obtener(
+                        guardar_csv=guardar_historicos,
+                        sobrescribir_csv=self.parametros.es_historico,
+                    ),
                 ),
             )
-            registros_combustible = self._depurar_registros_combustible(registros_combustible)
+            registros_combustible = self._ejecutar_subetapa(
+                "combustible",
+                "depuracion",
+                lambda: self._depurar_registros_combustible(registros_combustible),
+            )
             productos, precios = self._ejecutar_etapa(
                 "Transformacion combustibles",
-                lambda: self.transformador_combustible.transformar(registros_combustible),
+                lambda: self._ejecutar_subetapa(
+                    "combustible",
+                    "transformacion",
+                    lambda: self.transformador_combustible.transformar(registros_combustible),
+                ),
             )
-            self._trazar_combustibles(productos, precios, registrar_csv=guardar_historicos)
+            self._ejecutar_subetapa(
+                "combustible",
+                "trazabilidad",
+                lambda: self._trazar_combustibles(productos, precios, registrar_csv=guardar_historicos),
+            )
             self._ejecutar_etapa(
                 "Carga staging combustibles",
-                lambda: self.cargador_combustible.cargar_staging(productos, precios),
+                lambda: self._ejecutar_subetapa(
+                    "combustible",
+                    "carga_staging",
+                    lambda: self.cargador_combustible.cargar_staging(productos, precios),
+                ),
             )
             perfil_comb_staging = self._validadores["combustible_precios"].registrar_sql(
                 "staging",
@@ -180,23 +229,46 @@ class ETLApp:
             )
             self._actualizar_estadisticas("combustible", staging=perfil_comb_staging.filas)
 
-            resultado_cba = self._ejecutar_etapa("Extraccion CBA oficial", self.extractor_cba.extraer)
+            resultado_cba = self._ejecutar_etapa(
+                "Extraccion CBA oficial",
+                lambda: self._ejecutar_subetapa("cba", "extraccion", self.extractor_cba.extraer),
+            )
             df_cba = self._ejecutar_etapa(
                 "Transformacion CBA oficial",
-                lambda: self.transformador_cba.transformar_detalle(resultado_cba.detalle),
+                lambda: self._ejecutar_subetapa(
+                    "cba",
+                    "transformacion_detalle",
+                    lambda: self.transformador_cba.transformar_detalle(resultado_cba.detalle),
+                ),
             )
             df_cba_control = self._ejecutar_etapa(
                 "Transformacion consolidado CBA",
-                lambda: self.transformador_cba.transformar_control(resultado_cba.consolidado),
+                lambda: self._ejecutar_subetapa(
+                    "cba",
+                    "transformacion_control",
+                    lambda: self.transformador_cba.transformar_control(resultado_cba.consolidado),
+                ),
             )
             self._ejecutar_etapa(
                 "Validacion CBA oficial",
-                lambda: self.validador_cba_oficial.validar_reconciliacion(df_cba, df_cba_control),
+                lambda: self._ejecutar_subetapa(
+                    "cba",
+                    "validacion",
+                    lambda: self.validador_cba_oficial.validar_reconciliacion(df_cba, df_cba_control),
+                ),
             )
-            self._trazar_cba(df_cba, df_cba_control)
+            self._ejecutar_subetapa(
+                "cba",
+                "trazabilidad",
+                lambda: self._trazar_cba(df_cba, df_cba_control),
+            )
             self._ejecutar_etapa(
                 "Carga staging CBA oficial",
-                lambda: self.cargador_cba.cargar_staging(df_cba),
+                lambda: self._ejecutar_subetapa(
+                    "cba",
+                    "carga_staging",
+                    lambda: self.cargador_cba.cargar_staging(df_cba),
+                ),
             )
             perfil_cba_staging = self._validadores["cba"].registrar_sql(
                 "staging",
@@ -212,10 +284,17 @@ class ETLApp:
             )
             self._actualizar_estadisticas("cba", staging=perfil_cba_staging.filas)
 
-            df_clima = self._ejecutar_etapa("Extraccion y transformacion clima", self._obtener_clima)
+            df_clima = self._ejecutar_etapa(
+                "Extraccion y transformacion clima",
+                lambda: self._ejecutar_subetapa("clima", "pipeline_origen", self._obtener_clima),
+            )
             self._ejecutar_etapa(
                 "Carga staging clima",
-                lambda: self.cargador_clima.cargar_staging(df_clima),
+                lambda: self._ejecutar_subetapa(
+                    "clima",
+                    "carga_staging",
+                    lambda: self.cargador_clima.cargar_staging(df_clima),
+                ),
             )
             perfil_clima_staging = self._validadores["clima"].registrar_sql(
                 "staging",
@@ -236,11 +315,21 @@ class ETLApp:
             )
             self._actualizar_estadisticas("clima", staging=perfil_clima_staging.filas)
 
-            self._ejecutar_etapa("Auditoria de staging", self._auditar_staging_sql)
-            self._ejecutar_etapa("Asegurar catalogos base", self.coordinador_dw.asegurar_catalogos_base)
+            self._ejecutar_etapa(
+                "Auditoria de staging",
+                lambda: self._ejecutar_subetapa("dw", "auditoria_staging", self._auditar_staging_sql),
+            )
+            self._ejecutar_etapa(
+                "Asegurar catalogos base",
+                lambda: self._ejecutar_subetapa("dw", "catalogos_base", self.coordinador_dw.asegurar_catalogos_base),
+            )
             self._ejecutar_etapa(
                 "Carga final del DW mediante procedimientos",
-                self.coordinador_dw.ejecutar_transformaciones_dw,
+                lambda: self._ejecutar_subetapa(
+                    "dw",
+                    "carga_dw",
+                    self.coordinador_dw.ejecutar_transformaciones_dw,
+                ),
             )
 
             perfil_tc_dw = self._validadores["dolar"].registrar_sql(
@@ -309,11 +398,19 @@ class ETLApp:
             )
             self._actualizar_estadisticas("clima", dw=perfil_clima_dw.filas)
 
-            self._ejecutar_etapa("Auditoria del DW", self._auditar_dw_sql)
+            self._ejecutar_etapa(
+                "Auditoria del DW",
+                lambda: self._ejecutar_subetapa("dw", "auditoria_dw", self._auditar_dw_sql),
+            )
             if self.parametros.debe_generar_sinteticos:
-                self._ejecutar_carga_sintetica_combustible()
+                self._ejecutar_subetapa(
+                    "combustible_sintetico",
+                    "carga",
+                    self._ejecutar_carga_sintetica_combustible,
+                )
             print("Proceso finalizado exitosamente")
             self._imprimir_resumen_dominios()
+            self._imprimir_resumen_rendimiento()
             print(
                 f"[ETL] Tiempo total del flujo real: "
                 f"{formatear_duracion(time.perf_counter() - self._inicio_flujo)}"
@@ -321,6 +418,7 @@ class ETLApp:
             return 0
         except Exception as exc:
             print(f"Error critico en el ETL: {exc}")
+            self._imprimir_resumen_rendimiento()
             print(
                 f"[ETL] Tiempo acumulado antes del error: "
                 f"{formatear_duracion(time.perf_counter() - self._inicio_flujo)}"
@@ -351,9 +449,7 @@ class ETLApp:
         self._actualizar_estadisticas("clima", leidas=len(df_origen_normalizado))
 
         if guardar_historicos:
-            df_csv = self._normalizar_clima(
-                pd.read_csv(self.raw_data_dir / "clima_historico.csv", encoding="utf-8-sig")
-            )
+            df_csv = df_origen_normalizado.copy()
             validar_columnas_obligatorias(
                 df_csv,
                 (
@@ -411,11 +507,7 @@ class ETLApp:
         validador.registrar_dataframe("origen", dataframe)
         self._actualizar_estadisticas("dolar", leidas=len(dataframe))
         if registrar_csv:
-            df_csv = self._normalizar_tipo_cambio_csv(
-                pd.read_csv(self.raw_data_dir / "tipo_cambio_historico.csv", encoding="utf-8-sig")
-            )
-            if not self.parametros.es_historico:
-                df_csv = self._filtrar_tipo_cambio_csv_por_alcance(df_csv, dataframe)
+            df_csv = dataframe.copy()
             validar_columnas_obligatorias(df_csv, ("fecha", "compra", "venta"), "dolar/csv")
             validador.registrar_dataframe("csv", df_csv)
             self._actualizar_estadisticas("dolar", csv=len(df_csv))
@@ -476,9 +568,7 @@ class ETLApp:
         self._actualizar_estadisticas("combustible", transformadas=len(dataframe_precios))
 
         if registrar_csv:
-            df_csv = self._normalizar_combustible_csv(
-                pd.read_csv(self.raw_data_dir / "combustible_historico.csv", encoding="utf-8-sig")
-            )
+            df_csv = dataframe_precios.copy()
             validar_columnas_obligatorias(
                 df_csv,
                 ("fecha", "producto", "precio"),
@@ -773,12 +863,9 @@ class ETLApp:
     def _normalizar_combustible_csv(dataframe: pd.DataFrame) -> pd.DataFrame:
         df = dataframe.copy()
         df["fecha"] = df["fechaPublicacion"].astype(str).str[:10]
-        df["producto"] = df["producto"].apply(
-            lambda valor: (
-                clasificar_producto_combustible(valor)["nombre_canonico"]
-                if clasificar_producto_combustible(valor) is not None
-                else None
-            )
+        clasificaciones = df["producto"].apply(clasificar_producto_combustible)
+        df["producto"] = clasificaciones.apply(
+            lambda clasificacion: clasificacion["nombre_canonico"] if clasificacion is not None else None
         )
         df["precio"] = pd.to_numeric(df["precioFinal"], errors="coerce")
         df = df.dropna(subset=["producto"])
@@ -867,3 +954,25 @@ class ETLApp:
         for dominio, datos in self._estadisticas.items():
             resumen = ", ".join(f"{clave}={valor}" for clave, valor in datos.items())
             print(f"[RESUMEN-{dominio.upper()}] {resumen}")
+
+    def _ejecutar_subetapa(self, dominio: str, nombre: str, funcion):
+        inicio = time.perf_counter()
+        resultado = funcion()
+        duracion = time.perf_counter() - inicio
+        clave = f"{dominio}.{nombre}"
+        self._tiempos_subetapa[clave] = self._tiempos_subetapa.get(clave, 0.0) + duracion
+        print(f"[PERF-{dominio.upper()}] {nombre}: {formatear_duracion(duracion)}")
+        return resultado
+
+    def _imprimir_resumen_rendimiento(self) -> None:
+        if not self._tiempos_subetapa:
+            return
+        print("=" * 50)
+        print("RESUMEN DE RENDIMIENTO")
+        print("=" * 50)
+        for clave, duracion in sorted(
+            self._tiempos_subetapa.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        ):
+            print(f"[PERF] {clave}={formatear_duracion(duracion)}")

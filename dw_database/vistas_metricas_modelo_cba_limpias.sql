@@ -284,7 +284,7 @@ GO
 CREATE OR ALTER VIEW dbo.vw_CBA_ExogenasMensuales_Proyectadas12M
 AS
 WITH FechaObjetivo AS (
-    SELECT DATEFROMPARTS(YEAR(GETDATE()) + 1, MONTH(GETDATE()), 1) AS FechaInicioForecast
+    SELECT CAST(DATEADD(DAY, 1, EOMONTH(GETDATE())) AS DATE) AS FechaInicioForecast
 ),
 N AS (
     SELECT 1 AS n

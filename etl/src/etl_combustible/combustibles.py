@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from functools import lru_cache
 
 
 def normalizar_texto_combustible(valor: object) -> str:
@@ -26,7 +27,11 @@ def clasificar_producto_combustible(nombre_raw: object) -> dict[str, str] | None
     texto = normalizar_texto_combustible(nombre_raw)
     if not texto:
         return None
+    return _clasificar_producto_combustible_texto(texto)
 
+
+@lru_cache(maxsize=256)
+def _clasificar_producto_combustible_texto(texto: str) -> dict[str, str] | None:
     categoria = "Combustibles"
     unidad = "Litro"
 

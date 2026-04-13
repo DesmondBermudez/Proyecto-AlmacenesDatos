@@ -66,6 +66,9 @@ class ExtractorCombustible:
         "https://datos.aresep.go.cr/ws.datosabiertos/Services/IE/"
         "TarifaCombustible.svc/ObtenerHistoricoTarifasHidrocarburos"
     )
+    TIMEOUT_SEGUNDOS = 30
+    REINTENTOS_API = 3
+    PAUSA_REINTENTO_SEGUNDOS = 3
 
     def __init__(self, ruta_respaldo_csv: Path) -> None:
         self.ruta_respaldo_csv = ruta_respaldo_csv
@@ -89,14 +92,14 @@ class ExtractorCombustible:
 
     def _obtener_api(self) -> list[dict]:
         ultimo_error: Exception | None = None
-        for _ in range(3):
+        for _ in range(self.REINTENTOS_API):
             try:
-                response = requests.get(self.URL, timeout=30)
+                response = requests.get(self.URL, timeout=self.TIMEOUT_SEGUNDOS)
                 response.raise_for_status()
                 return response.json().get("value", [])
             except Exception as exc:
                 ultimo_error = exc
-                time.sleep(3)
+                time.sleep(self.PAUSA_REINTENTO_SEGUNDOS)
         if ultimo_error is not None:
             raise ultimo_error
         return []

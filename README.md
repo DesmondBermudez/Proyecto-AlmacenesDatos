@@ -1,100 +1,187 @@
-# ETL de Dolar, Combustibles, CBA Oficial y Clima
+# ETL para Dolar, Combustibles, CBA Oficial y Clima
 
-Este proyecto implementa un flujo ETL en Python + SQL Server para poblar un Data Warehouse desde cuatro dominios desacoplados:
+Pipeline ETL en Python + SQL Server orientado a consolidar datos de interes economico y operativo en un Data Warehouse unico. El flujo integra cuatro dominios desacoplados, aplica validaciones, carga tablas de staging y materializa dimensiones y hechos mediante procedimientos almacenados.
 
-- `etl_dolar`
-- `etl_combustible`
-- `etl_cba`
-- `etl_clima`
+## Vision general
 
-## Introduccion
+El proyecto procesa informacion de:
 
-- la aplicación principal ejecuta `dolar -> combustible -> cba -> clima`
-- cada dominio carga primero a `staging` y después al DW mediante procedimientos almacenados
-- la CBA oficial usa `etl/data/raw/cba` como fuente operativa real
-- los catálogos base del DW se aseguran desde [etl/src/dw_manager.py](C:/Users/d3smo/Desktop/CUC/Almacenes%20de%20datos/Nueva%20carpeta/Proyecto-AlmacenesDatos/etl/src/dw_manager.py)
-- el smoke test SQL crea una base temporal aislada y limpia bases `DW_Dolar_Canasta_Smoke_*` huérfanas antes de correr
+- tipo de cambio del dolar
+- precios de combustibles
+- canasta basica alimentaria oficial
+- clima mensual para zonas bananeras de referencia
 
-## Flujo general
+Cada dominio sigue la misma idea base:
+
+1. extraer datos desde su fuente principal
+2. usar respaldo local o simulacion si la fuente no responde
+3. transformar y normalizar
+4. cargar staging en SQL Server
+5. poblar el DW final con procedimientos almacenados
+
+## Que resuelve
+
+- centraliza fuentes heterogeneas en un modelo analitico comun
+- separa claramente extraccion, transformacion y carga
+- conserva respaldos CSV para continuidad operativa
+- valida consistencia antes de poblar el DW
+- permite ejecutar pruebas tecnicas y de conexion antes del flujo real
+- soporta una carga sintetica opcional para combustibles
+
+## Arquitectura
 
 ```mermaid
 flowchart LR
-    A["Fuentes externas y archivos raw"] --> B["Extractores Python"]
-    B --> C["Transformación y validación"]
-    C --> D["Staging SQL Server"]
-    D --> E["Procedimientos almacenados del DW"]
-    E --> F["Dimensiones, catálogos y hechos"]
+    A["Fuentes externas y archivos oficiales"] --> B["Extractores Python"]
+    B --> C["Transformacion y validacion"]
+    C --> D["Tablas de staging"]
+    D --> E["Procedimientos almacenados"]
+    E --> F["Dimensiones y hechos del DW"]
 ```
 
-## Flujo por ETL
+### Componentes principales
+
+- `ETL.py`: punto de entrada del proyecto.
+- `etl/src/app.py`: orquesta el flujo completo.
+- `etl/src/dw_manager.py`: limpia staging, asegura catalogos base y ejecuta las cargas finales del DW.
+- `etl/src/etl_dolar`: integra API de Hacienda, respaldo CSV y simulacion.
+- `etl/src/etl_combustible`: integra servicio de ARESEP, respaldo CSV y simulacion.
+- `etl/src/etl_cba`: lee archivos oficiales del INEC y valida reconciliacion contra el consolidado.
+- `etl/src/etl_clima`: extrae datos de NASA POWER y mantiene respaldo CSV.
+- `dw_database/01 - DW_Canasta.sql`: script base para SQL Server.
+- `dw_database/02 - DW_Canasta_AzureSQL.sql`: variante para Azure SQL Database.
+
+## Flujo real del ETL
+
+La aplicacion ejecuta los dominios en este orden:
+
+1. dolar
+2. combustibles
+3. CBA oficial
+4. clima
+
+Antes de cargar el DW final, el flujo:
+
+- limpia las tablas de staging
+- registra y valida trazabilidad por dominio
+- audita columnas obligatorias
+- asegura catalogos compartidos como `DimFuenteDatos` y `DimMoneda`
+- ejecuta procedimientos almacenados para transformar staging en tablas analiticas
 
 ```mermaid
 flowchart TB
     A["ETL.py"] --> B["ETLApp"]
-    B --> C["etl_dolar"]
-    B --> D["etl_combustible"]
-    B --> E["etl_cba"]
-    B --> F["etl_clima"]
+    B --> C["Limpiar staging"]
+    C --> D["Extraer y transformar dominios"]
 
-    C --> C1["StagingFecha + StagingTipoCambio"]
-    D --> D1["StagingFecha + StagingProducto + StagingPrecioGasolina"]
-    E --> E1["StagingFecha + StagingInec"]
-    F --> F1["StagingFecha + StagingZonaClimatica + StagingClimaMensual"]
+    D --> D1["Dolar"]
+    D --> D2["Combustibles"]
+    D --> D3["CBA oficial"]
+    D --> D4["Clima"]
 
-    C1 --> G["DimFecha + FactTipoCambio"]
-    D1 --> H["DimFecha + DimProducto + FactPrecioCombustible"]
-    E1 --> I["DimFecha + DimZonaCBA + DimCategoriaCBA + FactCanastaInecOficial"]
-    F1 --> J["DimFecha + DimZonaClimatica + FactClimaMensual"]
+    D1 --> S1["StagingTipoCambio"]
+    D2 --> S2["StagingProducto + StagingPrecioGasolina"]
+    D3 --> S3["StagingInec"]
+    D4 --> S4["StagingZonaClimatica + StagingClimaMensual"]
+
+    S1 --> E["Asegurar catalogos base"]
+    S2 --> E
+    S3 --> E
+    S4 --> E
+
+    E --> F["Procedimientos del DW"]
+    F --> G["Dimensiones"]
+    F --> H["Hechos"]
 ```
 
-## Fuentes por dominio
+## Fuentes de datos
 
-### Dólar
+| Dominio | Fuente principal | Respaldo |
+| --- | --- | --- |
+| Dolar | API del Ministerio de Hacienda de Costa Rica | `etl/data/raw/tipo_cambio_historico.csv` |
+| Combustibles | Servicio historico de ARESEP | `etl/data/raw/combustible_historico.csv` |
+| CBA oficial | Archivos XLSX del INEC | `etl/data/raw/cba/` |
+| Clima | NASA POWER | `etl/data/raw/clima_historico.csv` |
 
-- fuente principal: API del Ministerio de Hacienda de Costa Rica
-- respaldo operativo: `etl/data/raw/tipo_cambio_historico.csv`
-- fallback final: simulación controlada
+### Detalle por dominio
 
-### Combustibles
+- Dolar: carga tipo de cambio de compra y venta.
+- Combustibles: clasifica productos y carga precios historicos.
+- CBA oficial: transforma archivos por zona y categoria, y valida contra un consolidado mensual.
+- Clima: consolida temperatura maxima, temperatura minima, precipitacion, humedad y radiacion solar por zona y mes.
 
-- fuente principal: servicio histórico de ARESEP
-- respaldo operativo: `etl/data/raw/combustible_historico.csv`
-- fallback final: simulación controlada
+## Modelo del Data Warehouse
 
-### CBA oficial
+El modelo se organiza en tres capas:
 
-- fuente principal: archivos oficiales del INEC en `etl/data/raw/cba`
-- archivos detallados esperados:
-  - `CBANacional_*XMESyProducto.xlsx`
-  - `CBAUrbano_*XMESyProducto.xlsx`
-  - `CBARural_*XMESyProducto.xlsx`
-- archivo de control para reconciliación:
-  - `CBA_2011-2026XMES.xlsx`
+- `staging`: aterrizaje temporal de los datos procesados
+- `dimensiones`: entidades descriptivas y catalogos compartidos
+- `hechos`: tablas analiticas finales
 
-La carga principal de CBA sale de los archivos detallados por zona y categoría. El consolidado mensual se usa para validar que los totales `CBA` coincidan antes de cargar el DW.
+### Dimensiones y catalogos
 
-### Clima
+- `DimFecha`
+- `DimFuenteDatos`
+- `DimMoneda`
+- `DimProducto`
+- `DimZonaCBA`
+- `DimCategoriaCBA`
+- `DimZonaClimatica`
 
-- fuente principal: NASA POWER
-- respaldo operativo: `etl/data/raw/clima_historico.csv`
+### Tablas de staging
 
-## Estructura del proyecto
+- `StagingFecha`
+- `StagingTipoCambio`
+- `StagingProducto`
+- `StagingPrecioGasolina`
+- `StagingInec`
+- `StagingZonaClimatica`
+- `StagingClimaMensual`
+
+### Tablas de hechos
+
+- `FactTipoCambio`
+- `FactPrecioCombustible`
+- `FactCanastaInecOficial`
+- `FactClimaMensual`
+
+### Flujo de carga hacia el DW
+
+```mermaid
+flowchart LR
+    A["StagingFecha"] --> B["DimFecha"]
+
+    C["StagingTipoCambio"] --> D["FactTipoCambio"]
+    C --> B
+
+    E["StagingProducto"] --> F["DimProducto"]
+    G["StagingPrecioGasolina"] --> H["FactPrecioCombustible"]
+    G --> B
+    F --> H
+
+    I["StagingInec"] --> J["DimZonaCBA"]
+    I --> K["DimCategoriaCBA"]
+    I --> L["FactCanastaInecOficial"]
+    I --> B
+    J --> L
+    K --> L
+
+    M["StagingZonaClimatica"] --> N["DimZonaClimatica"]
+    O["StagingClimaMensual"] --> P["FactClimaMensual"]
+    O --> B
+    N --> P
+```
+
+## Estructura del repositorio
 
 ```text
 Proyecto-AlmacenesDatos/
 |-- ETL.py
-|-- README.md
-|-- requirements.txt
-|-- requirements-dev.txt
 |-- dw_database/
-|   `-- 01 - DW_Canasta.sql
+|   |-- 01 - DW_Canasta.sql
+|   `-- 02 - DW_Canasta_AzureSQL.sql
 |-- etl/
-|   |-- data/
-|   |   `-- raw/
-|   |       |-- cba/
-|   |       |-- clima_historico.csv
-|   |       |-- combustible_historico.csv
-|   |       `-- tipo_cambio_historico.csv
+|   |-- data/raw/
 |   `-- src/
 |       |-- admin_db_conn/
 |       |-- etl_cba/
@@ -110,522 +197,69 @@ Proyecto-AlmacenesDatos/
 `-- tests/
     |-- smoke/
     `-- unit/
-        |-- core/
-        |-- etl_cba/
-        |-- etl_clima/
-        |-- etl_combustible/
-        `-- etl_dolar/
 ```
 
-## Responsabilidades principales
+## Ejecucion
 
-### Punto de entrada
-
-- [ETL.py](C:/Users/d3smo/Desktop/CUC/Almacenes%20de%20datos/Nueva%20carpeta/Proyecto-AlmacenesDatos/ETL.py)
-  - arranca el proyecto
-  - ejecuta pruebas si se solicitan
-  - transfiere el control al flujo real
-
-### Orquestación
-
-- [etl/src/app.py](C:/Users/d3smo/Desktop/CUC/Almacenes%20de%20datos/Nueva%20carpeta/Proyecto-AlmacenesDatos/etl/src/app.py)
-  - coordina los cuatro ETLs
-  - valida trazabilidad
-  - dispara carga a staging y DW
-
-- [etl/src/dw_manager.py](C:/Users/d3smo/Desktop/CUC/Almacenes%20de%20datos/Nueva%20carpeta/Proyecto-AlmacenesDatos/etl/src/dw_manager.py)
-  - limpia staging
-  - asegura catálogos base
-  - ejecuta los procedimientos almacenados finales del DW
-
-### ETLs por dominio
-
-- `etl/src/etl_dolar`
-  - extracción de tipo de cambio
-  - fallback a CSV y simulación
-  - carga a `StagingTipoCambio`
-
-- `etl/src/etl_combustible`
-  - extracción ARESEP
-  - clasificación de combustibles
-  - carga a `StagingProducto` y `StagingPrecioGasolina`
-
-- `etl/src/etl_cba`
-  - lectura de archivos oficiales INEC
-  - normalización de periodos, zonas y categorías
-  - validación contra el consolidado oficial
-  - carga a `StagingInec`
-
-- `etl/src/etl_clima`
-  - extracción desde NASA POWER
-  - normalización mensual
-  - carga a `StagingZonaClimatica` y `StagingClimaMensual`
-
-## Modelo actual del DW
-
-El archivo [dw_database/01 - DW_Canasta.sql](C:/Users/d3smo/Desktop/CUC/Almacenes%20de%20datos/Nueva%20carpeta/Proyecto-AlmacenesDatos/dw_database/01%20-%20DW_Canasta.sql) define tres capas explícitas:
-
-1. `staging`: tablas de aterrizaje por ETL
-2. `catálogos y dimensiones`: entidades compartidas y descriptivas
-3. `hechos`: tablas analíticas finales
-
-### Catálogos base y dimensiones
-
-Catálogos compartidos:
-
-- `DimFuenteDatos`
-  - catálogo de procedencia lógica de los datos
-  - valores base asegurados por `dw_manager.py`:
-    - `1`: Ministerio de Hacienda CR
-    - `2`: ARESEP
-    - `3`: Respaldo local o simulado
-    - `4`: NASA POWER
-    - `5`: INEC
-
-- `DimMoneda`
-  - catálogo monetario base
-  - valores base asegurados por `dw_manager.py`:
-    - `1`: USD
-    - `2`: CRC
-
-Dimensiones analíticas:
-
-- `DimFecha`
-- `DimProducto`
-- `DimZonaCBA`
-- `DimCategoriaCBA`
-- `DimZonaClimatica`
-
-### Tablas de staging
-
-- `StagingFecha`
-  - calendario operativo compartido por todos los dominios
-
-- `StagingTipoCambio`
-  - staging del ETL dólar
-  - contiene `FechaID`, monedas y valores de compra/venta
-
-- `StagingProducto`
-  - staging descriptivo del ETL combustible
-  - alimenta `DimProducto`
-
-- `StagingPrecioGasolina`
-  - staging transaccional del ETL combustible
-  - alimenta `FactPrecioCombustible`
-
-- `StagingInec`
-  - staging oficial del ETL CBA
-  - contiene `Fecha`, `FechaID`, `Zona`, `CategoriaNombre`, `PeriodoTextoOriginal`, `CostoPerCapita`, `ArchivoOrigen`, `FuenteID`
-
-- `StagingZonaClimatica`
-  - staging descriptivo del ETL clima
-  - alimenta `DimZonaClimatica`
-
-- `StagingClimaMensual`
-  - staging transaccional del ETL clima
-  - alimenta `FactClimaMensual`
-
-### Hechos finales
-
-- `FactTipoCambio`
-- `FactPrecioCombustible`
-- `FactCanastaInecOficial`
-- `FactClimaMensual`
-
-### Procedimientos almacenados
-
-- `sp_InsertarTipoCambioStaging`
-- `sp_Transform_DimFecha`
-- `sp_Transform_DimProducto`
-- `sp_Transform_DimZonaCBA`
-- `sp_Transform_DimCategoriaCBA`
-- `sp_Transform_DimZonaClimatica`
-- `sp_Transform_FactTipoCambio`
-- `sp_Load_FactPrecioCombustible`
-- `sp_Load_FactCanastaInecOficial`
-- `sp_Load_FactClimaMensual`
-
-## Relaciones actuales del modelo
-
-### Relación staging -> catálogos/dimensiones -> hechos
-
-```mermaid
-flowchart LR
-    SF["StagingFecha"] --> DF["DimFecha"]
-
-    STC["StagingTipoCambio"] --> FTC["FactTipoCambio"]
-    STC --> DF
-    FTC --> DM1["DimMoneda"]
-    FTC --> DM2["DimMoneda"]
-    FTC --> FD1["DimFuenteDatos"]
-
-    SP["StagingProducto"] --> DP["DimProducto"]
-    SPG["StagingPrecioGasolina"] --> FPC["FactPrecioCombustible"]
-    SPG --> DF
-    FPC --> DP
-    FPC --> DM3["DimMoneda"]
-    FPC --> FD2["DimFuenteDatos"]
-
-    SI["StagingInec"] --> DZ["DimZonaCBA"]
-    SI --> DC["DimCategoriaCBA"]
-    SI --> DF
-    SI --> FCBA["FactCanastaInecOficial"]
-    FCBA --> DZ
-    FCBA --> DC
-    FCBA --> FD3["DimFuenteDatos"]
-
-    SZC["StagingZonaClimatica"] --> DZC["DimZonaClimatica"]
-    SCM["StagingClimaMensual"] --> FCM["FactClimaMensual"]
-    SCM --> DF
-    FCM --> DZC
-    FCM --> FD4["DimFuenteDatos"]
-```
-
-### Diagrama dimensional del DW
-
-```mermaid
-erDiagram
-    DimFecha {
-        int FechaID PK
-        date Fecha
-        int Dia
-        int Mes
-        string NombreMes
-        int Anio
-        int Trimestre
-    }
-
-    DimFuenteDatos {
-        int FuenteID PK
-        string NombreFuente
-        string Descripcion
-    }
-
-    DimMoneda {
-        int MonedaID PK
-        string NombreMoneda
-        string CodigoMoneda
-    }
-
-    DimProducto {
-        int ProductoID PK
-        string NombreRaw
-        string NombreProducto
-        string Categoria
-        string SubCategoria
-        int FuenteID FK
-        bit EsImportado
-        string UnidadMedida
-        decimal FactorCanasta
-        decimal PrecioBaseReferencia
-    }
-
-    DimZonaCBA {
-        int ZonaCBAID PK
-        string NombreZona
-        int FuenteID FK
-    }
-
-    DimCategoriaCBA {
-        int CategoriaCBAID PK
-        string NombreCategoria
-        int FuenteID FK
-    }
-
-    DimZonaClimatica {
-        int ZonaClimaticaID PK
-        string NombreZona
-        decimal Latitud
-        decimal Longitud
-        int FuenteID FK
-    }
-
-    FactTipoCambio {
-        bigint FactTipoCambioID PK
-        int FechaID FK
-        int MonedaBaseID FK
-        int MonedaReferenciaID FK
-        int FuenteID FK
-        decimal TipoCambioCompra
-        decimal TipoCambioVenta
-    }
-
-    FactPrecioCombustible {
-        bigint FactPrecioCombustibleID PK
-        int FechaID FK
-        int ProductoID FK
-        int MonedaID FK
-        int FuenteID FK
-        decimal Precio
-    }
-
-    FactCanastaInecOficial {
-        bigint CBAOficialKey PK
-        int FechaID FK
-        int ZonaCBAID FK
-        int CategoriaCBAID FK
-        string Zona
-        string CategoriaNombre
-        string PeriodoTextoOriginal
-        int FuenteID FK
-        decimal CostoPerCapita
-        string ArchivoOrigen
-        datetime FechaCarga
-    }
-
-    FactClimaMensual {
-        bigint FactClimaMensualID PK
-        int FechaID FK
-        int ZonaClimaticaID FK
-        int FuenteID FK
-        decimal TempMax
-        decimal TempMin
-        decimal Precipitacion
-        decimal Humedad
-        decimal RadiacionSolar
-    }
-
-    DimFuenteDatos ||--o{ DimProducto : describe_fuente
-    DimFuenteDatos ||--o{ DimZonaCBA : describe_fuente
-    DimFuenteDatos ||--o{ DimCategoriaCBA : describe_fuente
-    DimFuenteDatos ||--o{ DimZonaClimatica : describe_fuente
-
-    DimFecha ||--o{ FactTipoCambio : clasifica
-    DimMoneda ||--o{ FactTipoCambio : moneda_base
-    DimMoneda ||--o{ FactTipoCambio : moneda_referencia
-    DimFuenteDatos ||--o{ FactTipoCambio : rastrea
-
-    DimFecha ||--o{ FactPrecioCombustible : clasifica
-    DimProducto ||--o{ FactPrecioCombustible : describe
-    DimMoneda ||--o{ FactPrecioCombustible : valora
-    DimFuenteDatos ||--o{ FactPrecioCombustible : rastrea
-
-    DimFecha ||--o{ FactCanastaInecOficial : clasifica
-    DimZonaCBA ||--o{ FactCanastaInecOficial : segmenta
-    DimCategoriaCBA ||--o{ FactCanastaInecOficial : agrupa
-    DimFuenteDatos ||--o{ FactCanastaInecOficial : rastrea
-
-    DimFecha ||--o{ FactClimaMensual : clasifica
-    DimZonaClimatica ||--o{ FactClimaMensual : ubica
-    DimFuenteDatos ||--o{ FactClimaMensual : rastrea
-```
-
-### Diagrama de staging y carga final
-
-```mermaid
-flowchart TB
-    subgraph Staging
-        SF["StagingFecha"]
-        STC["StagingTipoCambio"]
-        SP["StagingProducto"]
-        SPG["StagingPrecioGasolina"]
-        SI["StagingInec"]
-        SZC["StagingZonaClimatica"]
-        SCM["StagingClimaMensual"]
-    end
-
-    subgraph Procedimientos
-        P1["sp_Transform_DimFecha"]
-        P2["sp_Transform_DimProducto"]
-        P3["sp_Transform_DimZonaCBA"]
-        P4["sp_Transform_DimCategoriaCBA"]
-        P5["sp_Transform_DimZonaClimatica"]
-        P6["sp_Transform_FactTipoCambio"]
-        P7["sp_Load_FactPrecioCombustible"]
-        P8["sp_Load_FactCanastaInecOficial"]
-        P9["sp_Load_FactClimaMensual"]
-    end
-
-    subgraph DW
-        DF["DimFecha"]
-        DP["DimProducto"]
-        DZ["DimZonaCBA"]
-        DC["DimCategoriaCBA"]
-        DZC["DimZonaClimatica"]
-        FTC["FactTipoCambio"]
-        FPC["FactPrecioCombustible"]
-        FCBA["FactCanastaInecOficial"]
-        FCM["FactClimaMensual"]
-    end
-
-    SF --> P1 --> DF
-    SP --> P2 --> DP
-    SI --> P3 --> DZ
-    SI --> P4 --> DC
-    SZC --> P5 --> DZC
-    STC --> P6 --> FTC
-    SPG --> P7 --> FPC
-    SI --> P8 --> FCBA
-    SCM --> P9 --> FCM
-```
-
-## Cadenas de carga por dominio
-
-### Dólar
-
-```text
-API / CSV / simulación -> StagingFecha + StagingTipoCambio -> sp_Transform_DimFecha + sp_Transform_FactTipoCambio -> FactTipoCambio
-```
-
-### Combustibles
-
-```text
-ARESEP / CSV / simulación -> StagingFecha + StagingProducto + StagingPrecioGasolina -> sp_Transform_DimFecha + sp_Transform_DimProducto + sp_Load_FactPrecioCombustible -> FactPrecioCombustible
-```
-
-### CBA oficial
-
-```text
-Archivos XLSX INEC -> StagingFecha + StagingInec -> sp_Transform_DimFecha + sp_Transform_DimZonaCBA + sp_Transform_DimCategoriaCBA + sp_Load_FactCanastaInecOficial -> FactCanastaInecOficial
-```
-
-### Clima
-
-```text
-NASA POWER / CSV -> StagingFecha + StagingZonaClimatica + StagingClimaMensual -> sp_Transform_DimFecha + sp_Transform_DimZonaClimatica + sp_Load_FactClimaMensual -> FactClimaMensual
-```
-
-## Preparación del entorno
-
-### 1. Crear y activar entorno virtual
+### Preparacion
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-### 2. Instalar dependencias
-
-```powershell
+.\.venv\Scripts\activate
 pip install -r requirements.txt
-pip install -r requirements-dev.txt
 ```
 
-Dependencias principales:
-
-- `pandas`
-- `pyodbc`
-- `requests`
-- `pytest`
-
-### 3. Preparar la base de datos
-
-Ejecuta el script:
-
-- [dw_database/01 - DW_Canasta.sql](C:/Users/d3smo/Desktop/CUC/Almacenes%20de%20datos/Nueva%20carpeta/Proyecto-AlmacenesDatos/dw_database/01%20-%20DW_Canasta.sql)
-
-El script está pensado para una base limpia y crea directamente la estructura actual del DW.
-
-### 4. Verificar archivos raw de CBA
-
-La carpeta `etl/data/raw/cba` debe contener los cuatro archivos oficiales del INEC. Sin ellos, el ETL de CBA no puede ejecutarse correctamente.
-
-## Ejecución del ETL
-
-### Ejecución normal
-
-```powershell
-python ETL.py
-```
-
-### Modo directo
-
-```powershell
-python ETL.py --modo-carga direct-insert
-```
-
-### Modo histórico
-
-```powershell
-python ETL.py --modo-carga historico
-```
-
-### Modo histórico sin regenerar respaldos CSV
-
-```powershell
-python ETL.py --modo-carga historico --no-generar-historicos
-```
-
-### Conexión a SQL Server con autenticación integrada
+### Conexion a SQL Server local
 
 ```powershell
 python ETL.py --server .\SQLEXPRESS --trusted-connection
 ```
 
-### Conexión a SQL Server con usuario y password
+### Conexion con usuario y password
 
 ```powershell
 python ETL.py --server localhost --database DW_Dolar_Canasta --username sa --password secreto --no-trusted-connection
 ```
 
+### Ejecucion historica
+
+```powershell
+python ETL.py --modo-carga historico
+```
+
+### Ejecucion con combustible sintetico
+
+```powershell
+python ETL.py --sinteticos
+```
+
 ## Pruebas
 
-### Ejecutar toda la suite con pytest
+### Suite general
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-### Ejecutar validación integral desde el CLI
-
-```powershell
-python ETL.py --test
-```
-
-Esto corre:
-
-1. pruebas `core`
-2. pruebas por ETL
-3. smoke SQL
-4. flujo real, salvo que se combine con `--only-test`
-
-### Ejecutar pruebas por ETL
-
-```powershell
-python ETL.py --test-ETL
-python ETL.py --test-ETL dolar combustible
-python ETL.py --test-ETL cba
-python ETL.py --test-ETL clima --only-test
-```
-
-Objetivos válidos:
-
-- `dolar`
-- `combustible`
-- `cba`
-- `clima`
-- `all`
-
-### Ejecutar smoke SQL
+### Validacion de conexion y base de datos
 
 ```powershell
 python ETL.py --test-DBconn --only-test
 ```
 
-También se puede correr manualmente con variables de entorno:
+### Validacion por ETL
 
 ```powershell
-$env:ETL_SMOKE_SQL = "1"
-$env:ETL_SQL_SERVER = "localhost"
-$env:ETL_SQL_DRIVER = "ODBC Driver 17 for SQL Server"
-$env:ETL_SQL_TRUSTED_CONNECTION = "1"
-.\.venv\Scripts\python.exe -m pytest -q tests\smoke
+python ETL.py --test-ETL
+python ETL.py --test-ETL dolar combustible clima --only-test
 ```
 
-El smoke test:
+## Notas de despliegue
 
-- crea una base temporal `DW_Dolar_Canasta_Smoke_*`
-- carga datos mínimos por dominio
-- ejecuta los procedimientos del DW
-- valida que staging, dimensiones y hechos finales reciban registros
-- limpia bases temporales huérfanas de ejecuciones anteriores
+- Para SQL Server local o de instancia completa, usa `01 - DW_Canasta.sql`.
+- Para Azure SQL Database, usa `02 - DW_Canasta_AzureSQL.sql`.
+- En Azure SQL, el endpoint debe indicarse con el servidor completo, por ejemplo `nombre-servidor.database.windows.net`.
 
-## Validaciones de calidad
+## Resumen
 
-El proyecto aplica validaciones para evitar cargas inconsistentes:
-
-- descarte de filas no utilizables antes de staging
-- validación de columnas obligatorias
-- trazabilidad entre origen, CSV, staging y DW
-- reconciliación de CBA oficial contra el consolidado mensual del INEC
-- auditoría de no nulos en tablas clave del staging, catálogos y hechos
+Este repositorio implementa un ETL modular con trazabilidad, validaciones y carga analitica sobre SQL Server. El resultado es un Data Warehouse listo para consultas sobre tipo de cambio, combustibles, CBA oficial y clima, con una estructura clara de staging, dimensiones y hechos.

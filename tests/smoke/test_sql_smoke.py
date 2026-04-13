@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -19,6 +20,11 @@ from etl_dolar.models import RegistroTipoCambio
 
 
 pytestmark = pytest.mark.smoke_sql
+
+
+def _is_azure_sql_server(server: str) -> bool:
+    servidor = server.strip().lower().split(",", maxsplit=1)[0]
+    return servidor.endswith(".database.windows.net")
 
 
 def _quote_sql_identifier(identifier: str) -> str:
@@ -60,6 +66,52 @@ def _build_params(database: str) -> ParametrosETL:
     )
 
 
+def _build_dw_script_path(server: str) -> Path:
+    script_name = (
+        "02 - DW_Canasta_AzureSQL.sql"
+        if _is_azure_sql_server(server)
+        else "01 - DW_Canasta.sql"
+    )
+    return Path(__file__).resolve().parents[2] / "dw_database" / script_name
+
+
+def _create_smoke_database(master_db: SqlServerDB, database_name: str) -> None:
+    nombre_literal = database_name.replace("'", "''")
+    nombre_identificador = _quote_sql_identifier(database_name)
+    conn = master_db.conectar()
+    conn.autocommit = True
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""
+            IF DB_ID('{nombre_literal}') IS NULL
+            BEGIN
+                CREATE DATABASE {nombre_identificador};
+            END
+            """
+        )
+    finally:
+        conn.close()
+
+
+def _wait_until_database_is_ready(
+    smoke_db: SqlServerDB, *, retries: int = 15, delay_seconds: float = 2.0
+) -> None:
+    ultimo_error: Exception | None = None
+    for intento in range(retries):
+        try:
+            conn = smoke_db.conectar()
+            conn.close()
+            return
+        except Exception as exc:  # pragma: no cover - depende del motor SQL real
+            ultimo_error = exc
+            if intento == retries - 1:
+                raise
+            time.sleep(delay_seconds)
+    if ultimo_error is not None:  # pragma: no cover - salida defensiva
+        raise ultimo_error
+
+
 def _cleanup_orphan_smoke_databases(master_db: SqlServerDB) -> None:
     conn = master_db.conectar()
     conn.autocommit = True
@@ -93,13 +145,19 @@ def test_sql_smoke_carga_staging_y_procedimientos() -> None:
     if os.getenv("ETL_SMOKE_SQL") != "1":
         pytest.skip("Smoke SQL deshabilitado")
 
-    script_path = Path(__file__).resolve().parents[2] / "dw_database" / "01 - DW_Canasta.sql"
     database_name = f"DW_Dolar_Canasta_Smoke_{uuid.uuid4().hex[:8]}"
     master_db = SqlServerDB(_build_params("master"))
     smoke_db = SqlServerDB(_build_params(database_name))
+    script_path = _build_dw_script_path(master_db.parametros.server)
     _cleanup_orphan_smoke_databases(master_db)
 
-    conn = master_db.conectar()
+    if _is_azure_sql_server(master_db.parametros.server):
+        _create_smoke_database(master_db, database_name)
+        _wait_until_database_is_ready(smoke_db)
+        conn = smoke_db.conectar()
+    else:
+        conn = master_db.conectar()
+
     conn.autocommit = True
     try:
         cursor = conn.cursor()
